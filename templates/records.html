@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}RECORDS{% endblock %}
+{% block content %}
+<div class="page-fill">
+<div class="panel">
+  <div class="panel-title">TRANSACTION RECORDS
+    <span class="spacer"></span>
+    <label class="dim">VIEW</label>
+    <select id="view-mode">
+      <option value="ledger">LEDGER</option>
+      <option value="groups">GROUPS</option>
+    </select>
+    <label class="dim">ACCOUNT</label><select id="f-account"><option value="">ALL</option></select>
+    <label class="dim">ASSET</label>
+    <input id="f-asset" list="f-asset-list" placeholder="type ticker">
+    <datalist id="f-asset-list"></datalist>
+    <label class="dim">FROM</label><input type="date" id="f-start">
+    <label class="dim">TO</label><input type="date" id="f-end">
+    <input id="f-q" placeholder="search note/party...">
+    <button class="mini" id="f-apply">APPLY</button>
+    <button class="mini" id="f-group" title="assign ticked rows to a group">GROUP SEL.</button>
+    <button class="mini" id="f-ungroup" title="remove ticked rows from their group">UNGROUP SEL.</button>
+    <button class="mini danger" id="f-del" title="delete ticked rows">DELETE SEL.</button>
+    <button class="mini" id="f-cols">COLUMNS</button>
+    <button class="mini primary" id="f-csv">DOWNLOAD CSV</button>
+    <span class="dim" id="rec-count"></span>
+  </div>
+  <div class="tbl-wrap" id="ledger-wrap">
+    <table class="tbl" id="tbl-records">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="groups-wrap" style="display:none">
+    <div class="form-row" style="padding:6px 10px">
+      <label class="fld">DISPLAY
+        <select id="grp-display">
+          <option value="detailed">DETAILED — every transaction</option>
+          <option value="aggregated">AGGREGATED — net per asset</option>
+        </select>
+      </label>
+      <span class="dim">Result = net cash of the group + open quantity at latest price, in display currency.</span>
+    </div>
+    <div id="groups-container" style="max-height: 76vh; overflow:auto"></div>
+  </div>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/txn_modals.js"></script>
+<script src="/static/js/records.js"></script>{% endblock %}

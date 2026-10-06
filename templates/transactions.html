@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}TRANSACTIONS{% endblock %}
+{% block content %}
+<div class="grid txn-grid">
+  <div class="panel form-lg">
+    <div class="panel-title">NEW TRANSACTION</div>
+    <div class="panel-body">
+      <div class="form-row">
+        <label class="fld">DATE &amp; TIME<input type="datetime-local" id="txn-date" step="60"></label>
+        <span class="inline-add" id="add-account" title="add account">＋ ACCOUNT</span>
+        <span class="inline-add" id="add-asset" title="add ticker">＋ TICKER</span>
+        <span class="inline-add" id="add-currency" title="add currency">＋ CURRENCY</span>
+      </div>
+
+      <div class="amber" style="margin:4px 0">OUTFLOW — party paying / delivering</div>
+      <div class="form-row">
+        <label class="fld">OUTFLOW PARTY
+          <select id="txn-out-acc" style="min-width:240px"></select>
+        </label>
+        <label class="fld hidden" id="txn-out-party-wrap">EXTERNAL NAME
+          <input id="txn-out-party" placeholder="e.g. employer / market">
+        </label>
+        <label class="fld">OUTFLOW UNIT
+          <input id="txn-out-asset" list="asset-suggestions" style="min-width:180px" placeholder="type ticker">
+        </label>
+        <label class="fld">OUTFLOW AMOUNT<input type="number" step="any" id="txn-out-amount"></label>
+      </div>
+
+      <div class="amber" style="margin:4px 0">INFLOW — party receiving</div>
+      <div class="form-row">
+        <label class="fld">INFLOW PARTY
+          <select id="txn-in-acc" style="min-width:240px"></select>
+        </label>
+        <label class="fld hidden" id="txn-in-party-wrap">EXTERNAL NAME
+          <input id="txn-in-party" placeholder="e.g. me / landlord">
+        </label>
+        <label class="fld">INFLOW UNIT
+          <input id="txn-in-asset" list="asset-suggestions" style="min-width:180px" placeholder="type ticker">
+        </label>
+        <label class="fld">INFLOW AMOUNT<input type="number" step="any" id="txn-in-amount"></label>
+      </div>
+
+      <div class="form-row">
+        <label class="fld">FEE ACCOUNT<select id="txn-fee-acc" style="min-width:240px"></select></label>
+        <label class="fld">FEE UNIT
+          <input id="txn-fee-asset" list="asset-suggestions" style="min-width:180px" placeholder="type ticker">
+        </label>
+        <label class="fld">FEE AMOUNT<input type="number" step="any" id="txn-fee-amount" value="0"></label>
+        <label class="fld" style="flex:1">NOTE<input id="txn-note" style="width:100%"></label>
+      </div>
+
+      <div class="form-row">
+        <button class="mini" data-tpl="buy">TPL: BUY</button>
+        <button class="mini" data-tpl="sell">TPL: SELL</button>
+        <button class="mini" data-tpl="transfer">TPL: TRANSFER</button>
+        <button class="mini" data-tpl="deposit">TPL: DEPOSIT</button>
+        <button class="mini" data-tpl="withdraw">TPL: WITHDRAW</button>
+        <button class="mini" data-tpl="loan">TPL: TAKE LOAN</button>
+        <span class="spacer" style="flex:1"></span>
+        <button class="primary" id="txn-save">SAVE TRANSACTION</button>
+      </div>
+      <div class="dim" id="txn-hint">Both parties may be the same account (e.g. pay USD, receive stock).
+        External parties never change your holdings.</div>
+      <datalist id="asset-suggestions"></datalist>
+    </div>
+  </div>
+
+  <div class="panel form-lg">
+    <div class="panel-title">IMPORT TRANSACTIONS (CSV)</div>
+    <div class="panel-body">
+      <div class="form-row">
+        <label class="fld">PROVIDER
+          <select id="imp-provider" style="min-width:180px">
+            <option value="firstrade">FIRSTRADE</option>
+            <option value="ib">IB (FLEX QUERY)</option>
+          </select>
+        </label>
+        <label class="fld">DESTINATION ACCOUNT
+          <select id="imp-account" style="min-width:240px"></select>
+        </label>
+        <label class="fld" style="flex:1">CSV FILE
+          <input id="imp-file" type="file" accept=".csv,text/csv" style="width:100%">
+        </label>
+      </div>
+      <div class="form-row">
+        <button class="mini" id="imp-preview">PREVIEW IMPORT</button>
+        <button class="primary" id="imp-commit" disabled title="rows already in the ledger are skipped unless the box is ticked">CONFIRM IMPORT</button>
+        <label class="fld" title="tick to also re-import rows already in the ledger (protects against double imports)">INCL. DUPLICATES
+          <input type="checkbox" id="imp-include-dups">
+        </label>
+        <label class="fld">SHOW
+          <select id="imp-filter" style="min-width:180px">
+            <option value="all">ALL PREVIEW ROWS</option>
+            <option value="invalid">INVALID ONLY</option>
+          </select>
+        </label>
+        <span class="dim" id="imp-summary"></span>
+      </div>
+      <div class="tbl-wrap" id="imp-preview-wrap" style="max-height: 32vh; display:none;">
+        <table class="tbl" id="tbl-import-preview">
+          <thead><tr><th>ROW</th><th>STATUS</th><th>TYPE</th><th>TICKER (EDITABLE)</th><th>DATE / TIME</th><th>OUT</th><th>IN</th><th>NOTE / ERROR</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="imp-unknown-wrap" style="display:none">
+        <div class="amber" style="margin:8px 0 4px">UNKNOWN TICKERS — approve each, then preview refreshes</div>
+        <div class="tbl-wrap" style="max-height: 26vh;">
+          <table class="tbl" id="tbl-imp-unknown">
+            <thead><tr><th>TICKER</th><th>ROWS</th><th>TYPE</th><th>CCY</th><th>YAHOO</th><th>DETECTED DETAILS</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="form-row">
+          <button class="mini primary" id="imp-create-all">CREATE ALL LISTED</button>
+          <span class="dim">VALIDATE checks the symbol on Yahoo Finance and fills the currency. CASH type registers a currency instead of an asset. Missing tickers: type them into the preview table — the preview re-checks automatically.</span>
+        </div>
+      </div>
+      <div id="imp-history-wrap" style="margin-top:10px">
+        <div class="amber" style="margin:8px 0 4px">IMPORT HISTORY — UNDO removes everything that import inserted; REDO re-runs the stored file</div>
+        <div class="tbl-wrap" style="max-height: 26vh;">
+          <table class="tbl" id="tbl-import-batches">
+            <thead><tr><th>#</th><th>WHEN</th><th>PROVIDER</th><th>ACCOUNT</th><th>FILE</th>
+              <th>ROWS</th><th>STATUS</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">RECENT ENTRIES</div>
+    <div class="tbl-wrap" style="max-height: 60vh;">
+      <table class="tbl" id="tbl-recent">
+        <thead><tr><th>DATE / TIME</th><th>OUT PARTY</th><th>OUT</th>
+          <th>IN PARTY</th><th>IN</th><th>NOTE</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/transactions.js"></script>{% endblock %}

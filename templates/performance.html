@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}PERFORMANCE{% endblock %}
+{% block content %}
+<div class="grid" style="grid-template-columns: 1fr;">
+  <div class="panel">
+    <div class="panel-title">PERFORMANCE SUMMARY <span class="dim">(MODIFIED DIETZ, FLOWS EXCLUDED)</span></div>
+    <div class="panel-body"><div class="kpi-strip" id="perf-stats"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">PORTFOLIO VS INDICES <span class="dim">(GROWTH OF 100 · DEPOSITS/WITHDRAWALS EXCLUDED)</span>
+      <span class="spacer"></span>
+      <span id="perf-range">
+        <button class="mini" data-range="1">1Y</button>
+        <button class="mini" data-range="3">3Y</button>
+        <button class="mini" data-range="5">5Y</button>
+        <button class="mini primary" data-range="all">ALL</button>
+      </span>
+      <label class="dim">FROM</label><input type="date" id="perf-start" title="custom start; clamped to your first snapshot">
+      <button class="mini icon-btn" data-fullscreen-chart="perf-chart" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button>
+    </div>
+    <div class="panel-body">
+      <div class="form-row" id="perf-indices" style="gap:14px"></div>
+      <div class="dim" id="perf-clamp-note" style="margin:2px 0 6px"></div>
+      <div id="perf-chart" class="chart" style="height:340px"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">MONTHLY RETURNS
+      <span class="spacer"></span>
+      <label class="dim">SHOW</label>
+      <select id="perf-tbl-mode">
+        <option value="ret">RETURN %</option>
+        <option value="logret">RETURN LOG %</option>
+        <option value="pnl">P&amp;L (DISPLAY CCY)</option>
+      </select>
+      <button class="mini" id="perf-refresh">REFRESH</button>
+    </div>
+    <div class="tbl-wrap" style="max-height: 52vh;">
+      <table class="tbl" id="tbl-perf"><thead></thead><tbody></tbody></table>
+    </div>
+    <div class="dim" style="padding:4px 10px">Current month is provisional (live prices, dotted on the chart), shown in italics with *.
+      Deposits/withdrawals are excluded from returns; dividends/interest count as return
+      (external cash legs with party “BROKER” = income).</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/performance.js"></script>{% endblock %}

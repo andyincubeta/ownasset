@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}HOLDINGS{% endblock %}
+{% block content %}
+<div class="page-fill">
+  <div class="panel" id="holdings-panel">
+    <div class="panel-title">HOLDINGS
+      <span class="spacer"></span>
+      <label class="dim">GROUP BY</label><select id="grp-mode">
+        <option value="account">ACCOUNT</option>
+        <option value="strategy">STRATEGY</option>
+        <option value="none">NONE</option>
+      </select>
+      <label class="dim">SORT</label><select id="hold-sort">
+        <option value="type_order">DEFAULT (TYPE)</option>
+        <option value="value_display">VALUE (DISP)</option>
+        <option value="ticker">TICKER A→Z</option>
+        <option value="day_change_pct">DAY %</option>
+        <option value="day_earn_pct">DAY EARN %</option>
+        <option value="earning_display">EARNING (DISP)</option>
+      </select>
+      <label class="dim">DP</label><select id="hold-dp" title="decimal places for prices / values / earnings">
+        <option value="0">0</option><option value="1">1</option>
+        <option value="2" selected>2</option><option value="3">3</option>
+        <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+      </select>
+      <label class="dim">ACCOUNT</label><select id="flt-account"><option value="">ALL</option></select>
+      <label class="dim">TYPE</label><select id="flt-type"><option value="">ALL</option></select>
+      <label class="dim">CCY</label><select id="flt-ccy"><option value="">ALL</option></select>
+      <input id="flt-q" placeholder="search ticker/name/industry..." style="width:220px">
+      <button class="mini" id="btn-group-sel" title="group positions into a strategy">GROUP…</button>
+      <button class="mini" id="btn-columns">COLUMNS</button>
+      <button class="mini primary" id="btn-holdings-csv">DOWNLOAD CSV</button>
+      <button class="mini icon-btn" data-fullscreen-el="holdings-panel" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button>
+      <span class="dim" id="holdings-count"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl" id="tbl-holdings"><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/txn_modals.js"></script>
+<script src="/static/js/holdings.js"></script>{% endblock %}

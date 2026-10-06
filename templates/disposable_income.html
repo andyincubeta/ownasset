@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}DISPOSABLE INCOME{% endblock %}
+{% block content %}
+<div class="grid">
+  <div class="panel">
+    <div class="panel-title">ADD DISPOSABLE INCOME
+      <span class="spacer"></span>
+      <span class="dim">deposits into the portfolio that are not investment returns —
+        excluded from the return index automatically</span>
+    </div>
+    <div class="panel-body">
+      <div class="form-row">
+        <label class="fld">DATE<input type="date" id="di-date"></label>
+        <label class="fld">ACCOUNT<select id="di-account"></select></label>
+        <label class="fld">CASH ASSET<select id="di-asset"></select></label>
+        <label class="fld">AMOUNT<input type="number" step="any" id="di-amount"></label>
+        <label class="fld" style="flex:1">NOTE<input id="di-note" style="width:100%"></label>
+        <button class="primary" id="di-add">ADD</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">ENTRIES <span id="di-count" class="dim"></span>
+      <span class="spacer"></span>
+      <span class="dim">TOTAL</span>&nbsp;<span id="di-total" class="num amber"></span>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl" id="tbl-disposable">
+        <thead><tr><th>DATE</th><th>ACCOUNT</th><th class="num">AMOUNT</th>
+          <th class="num">VALUE (<span id="di-ccy"></span>)</th><th>NOTE</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/disposable_income.js"></script>{% endblock %}

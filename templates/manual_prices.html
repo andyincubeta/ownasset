@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}MANUAL PRICES{% endblock %}
+{% block content %}
+<div class="grid" style="grid-template-columns: 320px 1fr;">
+  <div class="panel">
+    <div class="panel-title">NON-YAHOO ASSETS
+      <span class="spacer"></span>
+      <button class="mini" id="btn-new-manual">＋ NEW</button>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl" id="tbl-massets">
+        <thead><tr><th>TICKER</th><th>TYPE</th><th>CCY</th><th>LAST PX</th><th>SRC</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title"><span id="mp-title">SELECT AN ASSET</span><span class="spacer"></span><button class="mini icon-btn" data-fullscreen-chart="mp-spark" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button></div>
+    <div class="panel-body">
+      <div id="mp-editor" class="hidden">
+        <div class="form-row">
+          <label class="fld">DATE<input type="date" id="mp-date"></label>
+          <label class="fld">PRICE (NATIVE CCY)<input type="number" step="any" id="mp-price"></label>
+          <label class="fld" style="flex:1">NOTE<input id="mp-note" style="width:100%"></label>
+          <button class="primary" id="mp-add">ADD / UPDATE PRICE</button>
+        </div>
+        <div id="mp-spark" class="chart" style="height:160px"></div>
+        <div class="tbl-wrap" style="max-height: 46vh;">
+          <table class="tbl" id="tbl-mprices">
+            <thead><tr><th>DATE</th><th>PRICE</th><th>NOTE</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/manual_prices.js"></script>{% endblock %}

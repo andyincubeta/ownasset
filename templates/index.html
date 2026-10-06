@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}HOME{% endblock %}
+{% block content %}
+<div class="grid" style="grid-template-columns: 1fr;" id="home-sections">
+  <div id="fx-warn" class="hidden panel" style="border-color: var(--amber);">
+    <div class="panel-body amber" id="fx-warn-text"></div>
+  </div>
+
+  <section data-section="kpis">
+    <div class="sec-head" data-sec-toggle><span class="sec-arrow">▾</span> CONTAINERS</div>
+    <div class="sec-body">
+      <div class="kpi-strip" id="kpi-strip"></div>
+    </div>
+  </section>
+
+  <section data-section="indices">
+    <div class="sec-head" data-sec-toggle><span class="sec-arrow">▾</span> INDICES</div>
+    <div class="sec-body">
+      <div class="idx-strip" id="idx-strip"></div>
+    </div>
+  </section>
+
+  <section data-section="series">
+    <div class="sec-head" data-sec-toggle><span class="sec-arrow">▾</span> PORTFOLIO VALUE</div>
+    <div class="sec-body">
+      <div class="panel">
+        <div class="panel-title">PORTFOLIO VALUE
+          <label class="dim">VIEW</label>
+          <button class="mini view-toggle" id="series-view" data-view="value"
+                  title="toggle value / index view">VALUE</button>
+          <span class="spacer"></span>
+          <span id="series-value-ctl" style="display:contents">
+          <label class="dim">MODE</label>
+          <select id="series-mode">
+            <option value="line">LINE</option>
+            <option value="candle">CANDLE</option>
+          </select>
+          <label class="dim">VS INDEX</label>
+          <select id="series-bench">
+            <option value="">NONE</option>
+          </select>
+          <label class="dim">INDEX BASE DATE</label>
+          <input type="date" id="rebase-date">
+          <button class="mini" id="rebase-clear">CLEAR</button>
+          <label class="dim">Y-MIN</label><input type="number" id="y-min" step="any" style="width:7em">
+          <label class="dim">Y-MAX</label><input type="number" id="y-max" step="any" style="width:7em">
+          </span>
+          <span id="series-index-ctl" class="hidden" style="display:contents">
+          <span class="dim" title="growth of 100; deposits/disposable income excluded">GROWTH OF 100</span>
+          <label class="dim">MODE</label>
+          <select id="idx-mode">
+            <option value="line">LINE</option>
+            <option value="candle">CANDLE</option>
+          </select>
+          <label class="dim">BASE 100 DATE</label>
+          <input type="date" id="idx-base">
+          <button class="mini" id="idx-base-clear">CLEAR</button>
+          <label class="dim">VS</label>
+          <span id="dash-indices" style="display:contents"></span>
+          </span>
+          <button class="mini" id="series-reset" title="reset zoom and y range">RESET</button>
+          <button class="mini icon-btn" data-fullscreen-chart="chart-series" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button>
+        </div>
+        <div class="panel-body"><div id="chart-series" class="chart" style="height:300px"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section data-section="holdings">
+    <div class="sec-head" data-sec-toggle><span class="sec-arrow">▾</span> HOLDINGS</div>
+    <div class="sec-body">
+      <div class="panel" id="holdings-panel">
+        <div class="panel-title">HOLDINGS
+          <span class="spacer"></span>
+          <label class="dim">GROUP BY</label><select id="grp-mode">
+            <option value="account">ACCOUNT</option>
+            <option value="strategy">STRATEGY</option>
+            <option value="none">NONE</option>
+          </select>
+          <label class="dim">SORT</label><select id="hold-sort">
+            <option value="type_order">DEFAULT (TYPE)</option>
+            <option value="value_display">VALUE (DISP)</option>
+            <option value="ticker">TICKER A→Z</option>
+            <option value="day_change_pct">DAY %</option>
+            <option value="day_earn_pct">DAY EARN %</option>
+            <option value="earning_display">EARNING (DISP)</option>
+          </select>
+          <label class="dim">DP</label><select id="hold-dp" title="decimal places for prices / values / earnings">
+            <option value="0">0</option><option value="1">1</option>
+            <option value="2" selected>2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+          </select>
+          <label class="dim">ACCOUNT</label><select id="flt-account"><option value="">ALL</option></select>
+          <label class="dim">TYPE</label><select id="flt-type"><option value="">ALL</option></select>
+          <label class="dim">CCY</label><select id="flt-ccy"><option value="">ALL</option></select>
+          <input id="flt-q" placeholder="search ticker/name/industry..." style="width:220px">
+          <button class="mini" id="btn-group-sel" title="group positions into a strategy">GROUP…</button>
+          <button class="mini" id="btn-columns">COLUMNS</button>
+          <button class="mini primary" id="btn-holdings-csv">DOWNLOAD CSV</button>
+          <button class="mini icon-btn" data-fullscreen-el="holdings-panel" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button>
+          <span class="dim" id="holdings-count"></span>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tbl" id="tbl-holdings"><thead></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section data-section="charts">
+    <div class="sec-head" data-sec-toggle><span class="sec-arrow">▾</span> ALLOCATION &amp; EQUITY CHARTS</div>
+    <div class="sec-body">
+      <div class="grid" style="grid-template-columns: 2fr 1fr 1fr;">
+        <div class="panel">
+          <div class="panel-title">ALLOCATION <span class="dim" id="alloc-ccy"></span><span class="spacer"></span><button class="mini icon-btn" data-fullscreen-chart="chart-alloc" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button></div>
+          <div class="panel-body"><div id="chart-alloc" class="chart" style="height:260px"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">EQUITY BY INDUSTRY<span class="spacer"></span>
+            <select id="ind-mode">
+              <option value="long">LONG PIE</option>
+              <option value="netpie">NET PIE</option>
+              <option value="netbar">NET BAR</option>
+            </select>
+            <button class="mini icon-btn" data-fullscreen-chart="chart-industry" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button></div>
+          <div class="panel-body"><div id="chart-industry" class="chart" style="height:260px"></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">EQUITY BY COUNTRY<span class="spacer"></span>
+            <select id="cty-mode">
+              <option value="long">LONG PIE</option>
+              <option value="netpie">NET PIE</option>
+              <option value="netbar">NET BAR</option>
+            </select>
+            <button class="mini icon-btn" data-fullscreen-chart="chart-country" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button></div>
+          <div class="panel-body"><div id="chart-country" class="chart" style="height:260px"></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/txn_modals.js"></script>
+<script src="/static/js/holdings.js"></script>
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" data-theme="{{ ui_theme }}" style="--font-scale: {{ font_scale }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}HOME{% endblock %} | OWNASSET</title>
+  <link rel="stylesheet" href="/static/css/main.css">
+  <script src="/static/lib/echarts.min.js"></script>
+</head>
+<body data-display-ccy="{{ display_currency }}" data-display-utc-offset="{{ display_utc_offset_hours }}">
+<header id="topbar">
+  <a class="brand" href="/" title="home"><span class="brand-own">OWN</span>ASSET</a>
+  <button id="nav-toggle" aria-label="menu" title="menu"><span></span><span></span><span></span></button>
+  <nav>
+    <a class="navkey {% if active_page == 'home' %}active{% endif %}" href="/" data-hotkey="F1"><span class="fkey">F1</span>HOME</a>
+    <a class="navkey {% if active_page == 'holdings' %}active{% endif %}" href="/holdings" data-hotkey="F2"><span class="fkey">F2</span>HOLD</a>
+    <a class="navkey {% if active_page == 'transactions' %}active{% endif %}" href="/transactions" data-hotkey="F3"><span class="fkey">F3</span>TXN</a>
+    <a class="navkey {% if active_page == 'records' %}active{% endif %}" href="/records" data-hotkey="F4"><span class="fkey">F4</span>RECORDS</a>
+    <a class="navkey {% if active_page == 'manual_prices' %}active{% endif %}" href="/manual-prices" data-hotkey="F5"><span class="fkey">F5</span>MANUAL</a>
+    <a class="navkey {% if active_page == 'daily_values' %}active{% endif %}" href="/daily-values" data-hotkey="F6"><span class="fkey">F6</span>DAILY</a>
+    <a class="navkey {% if active_page == 'asset_prices' %}active{% endif %}" href="/asset-prices" data-hotkey="F7"><span class="fkey">F7</span>PRICES</a>
+    <a class="navkey {% if active_page == 'performance' %}active{% endif %}" href="/performance" data-hotkey="F8"><span class="fkey">F8</span>PERF</a>
+    <a class="navkey {% if active_page == 'strategy_groups' %}active{% endif %}" href="/strategy-groups" data-hotkey="F9"><span class="fkey">F9</span>STRAT</a>
+    <a class="navkey {% if active_page == 'disposable' %}active{% endif %}" href="/disposable-income" data-hotkey="F10"><span class="fkey">F10</span>INCOME</a>
+    <a class="navkey {% if active_page == 'scrape_monitor' %}active{% endif %}" href="/scrape-monitor" data-hotkey="F11"><span class="fkey">F11</span>SCRAPE</a>
+    <a class="navkey {% if active_page == 'settings' %}active{% endif %}" href="/settings" data-hotkey="F12"><span class="fkey">F12</span>SETUP</a>
+  </nav>
+  <div class="topright">
+    <span id="clock"></span>
+    <label class="dim" for="font-size-sel">TEXT</label>
+    <select id="font-size-sel">
+      {% for value, label in [("xsmall", "X-SMALL"), ("small", "SMALL"), ("normal", "NORMAL"), ("large", "LARGE"), ("xlarge", "X-LARGE"), ("xxlarge", "XX-LARGE"), ("xxxlarge", "XXX-LARGE"), ("max", "MAX")] %}
+      <option value="{{ value }}" {% if value == font_size %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <label class="dim" for="display-ccy">CCY</label>
+    <select id="display-ccy">
+      {% for c in currencies %}
+      <option value="{{ c }}" {% if c == display_currency %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <button id="theme-toggle" class="mini icon-btn" title="switch to {{ 'dark' if ui_theme == 'light' else 'light' }} mode">{% if ui_theme == 'light' %}<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 9.6A5.5 5.5 0 0 1 6.4 2.5 5.9 5.9 0 0 0 2 8.2 5.8 5.8 0 0 0 7.8 14a5.9 5.9 0 0 0 5.7-4.4z"/></svg>{% else %}<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M13 3l-1.4 1.4M4.4 11.6L3 13"/></svg>{% endif %}</button>
+  </div>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<div id="toast"></div>
+<div id="drawer"></div>
+<script src="/static/js/common.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

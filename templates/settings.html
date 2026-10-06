@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}SETTINGS{% endblock %}
+{% block content %}
+<div class="settings-grid">
+  <div class="panel">
+    <div class="panel-title">GENERAL</div>
+    <div class="panel-body">
+      <div class="form-row">
+        <label class="fld">DISPLAY CURRENCY<select id="s-ccy">{% for c in currencies %}<option>{{ c }}</option>{% endfor %}</select></label>
+        <label class="fld">UTC OFFSET (HOURS)<input type="number" step="1" min="-12" max="14" id="s-utc-offset"></label>
+        <label class="fld">LOG LEVEL<select id="s-log">
+          <option>DEBUG</option><option>INFO</option><option>WARNING</option><option>ERROR</option></select></label>
+        <label class="fld">IB IMPORT CCY<select id="s-imp-ccy-ib">{% for c in currencies %}<option>{{ c }}</option>{% endfor %}</select></label>
+        <label class="fld">FIRSTRADE IMPORT CCY<select id="s-imp-ccy-ft">{% for c in currencies %}<option>{{ c }}</option>{% endfor %}</select></label>
+      </div>
+      <button class="primary" id="s-save-general">SAVE GENERAL</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">HOME LAYOUT</div>
+    <div class="panel-body">
+      <div class="dim" style="margin-bottom:4px">Order of the HOME page sections (top → bottom). Collapse state is remembered per section on the HOME page itself.</div>
+      <div id="s-home-sections" class="col-order"></div>
+      <button class="primary" id="s-save-home" style="margin-top:6px">SAVE HOME LAYOUT</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">INDICES</div>
+    <div class="panel-body">
+      <div class="dim" style="margin-bottom:4px">Benchmark indices for the HOME strip (tick HOME) and all index-compare charts. ▲▼ sets the order.</div>
+      <div class="tbl-wrap" style="max-height:40vh">
+        <table class="tbl" id="tbl-indices">
+          <thead><tr><th>TICKER</th><th>NAME</th><th>SHORT</th><th>CCY</th><th>HOME</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="form-row" style="margin-top:6px">
+        <label class="fld">ADD PRESET<select id="s-idx-preset"></select></label>
+        <button class="mini" id="s-idx-add-preset">ADD</button>
+      </div>
+      <div class="form-row">
+        <label class="fld">CUSTOM YAHOO SYMBOL<input id="s-idx-ticker" placeholder="e.g. 000016.SS" maxlength="20"></label>
+        <label class="fld">NAME<input id="s-idx-name" maxlength="60"></label>
+        <label class="fld">SHORT<input id="s-idx-short" maxlength="10" style="width:7em"></label>
+        <button class="mini" id="s-idx-lookup">LOOKUP</button>
+        <button class="mini" id="s-idx-add-custom">ADD</button>
+      </div>
+      <button class="primary" id="s-save-indices">SAVE INDICES</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">SCRAPER INTERVALS</div>
+    <div class="panel-body">
+      <div class="form-row">
+        <label class="fld">QUOTES EVERY (SEC)<input type="number" id="s-quote-sec" min="10"></label>
+        <label class="fld">INTRADAY EVERY (MIN)<input type="number" id="s-intra-min" min="1"></label>
+        <label class="fld">INTRADAY BAR<select id="s-intra-bar">
+          <option>1m</option><option>5m</option><option>15m</option><option>30m</option>
+          <option>60m</option><option>1d</option></select></label>
+      </div>
+      <div class="form-row">
+        <label class="fld">DAILY REFRESH (HH:MM)<input id="s-daily-time" placeholder="22:30"></label>
+        <label class="fld">INFO REFRESH (HH:MM)<input id="s-info-time" placeholder="21:00"></label>
+        <label class="fld">SNAPSHOT (HH:MM)<input id="s-snap-time" placeholder="23:59"></label>
+      </div>
+      <button class="primary" id="s-save-sched">SAVE & RESCHEDULE</button>
+      <span class="dim">Prices are collected at 1h bars by default; set lower any time.</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">DAY CLOSE</div>
+    <div class="panel-body">
+      <div class="form-row">
+        <label class="fld">DAILY CLOSE PRICE<select id="s-close-mode">
+          <option value="market">MARKET CLOSE (OFFICIAL)</option>
+          <option value="cutoff">DAY END (INCL. PRE/POST)</option></select></label>
+        <label class="fld">DAY END (UTC HH:MM)<input id="s-close-cutoff" placeholder="00:00"></label>
+      </div>
+      <button class="primary" id="s-save-close">SAVE DAY CLOSE</button>
+      <div class="dim" style="margin-top:6px">
+        Applies to valuations, daily snapshots, asset prices and daily charts.
+        MARKET CLOSE = exchange official close (e.g. 16:00 ET). DAY END = last pre/regular/post-market
+        trade before the UTC time (00:00 = midnight ending the day).<br>
+        <span class="amber">WARNING:</span> Yahoo only has extended-hours bars for ~2 years — older dates
+        fall back to the official close. Bars older than ~35 days are hourly (up to 1h early).
+        The time is fixed UTC (00:00 UTC = 20:00 ET in summer, 19:00 ET in winter).
+        Pick a time after the session ends, otherwise prices shift to the next date.
+        Saving a change refetches prices in the background and rebuilds ALL snapshots.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">BACKUPS</div>
+    <div class="panel-body">
+      <div class="form-row">
+        <label class="fld">BACKUP TIME (UTC HH:MM)<input id="s-backup-time" placeholder="00:30"></label>
+        <label class="fld">KEEP LAST N<input type="number" id="s-backup-keep" min="1"></label>
+        <button class="primary" id="s-save-backup">SAVE</button>
+        <button class="mini" id="s-backup-now">BACKUP NOW</button>
+      </div>
+      <div class="dim">Daily copy of the database to .db/backups (safe while running). Copy that folder
+        off this machine for off-site protection.</div>
+      <div class="tbl-wrap" style="max-height:30vh;margin-top:6px">
+        <table class="tbl" id="tbl-backups">
+          <thead><tr><th>FILE</th><th>SIZE (MB)</th><th>TIME (UTC)</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">DATA MANAGEMENT</div>
+    <div class="panel-body">
+      <div id="s-stats" class="dim">loading…</div>
+      <div class="form-row" style="margin-top:8px">
+        <label class="fld">PURGE INTRADAY OF ASSET
+          <input id="s-purge-asset" list="s-purge-asset-list" placeholder="type ticker">
+          <datalist id="s-purge-asset-list"></datalist>
+        </label>
+        <label class="fld">OLDER THAN<input type="date" id="s-purge-date"></label>
+        <button class="danger" id="s-purge-intraday">PURGE INTRADAY BARS</button>
+      </div>
+      <div class="form-row">
+        <button class="danger" id="s-purge-scrape">PURGE SCRAPE LOG</button>
+      </div>
+      <div class="dim">Daily close history is permanent and never touched by these purges.</div>
+      <div class="tbl-wrap" style="max-height:30vh;margin-top:6px">
+        <table class="tbl" id="tbl-intraday-stats">
+          <thead><tr><th>TICKER</th><th>INTRADAY ROWS</th><th>FROM</th><th>TO</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/settings.js"></script>{% endblock %}

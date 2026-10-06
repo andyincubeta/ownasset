@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}STRATEGIES{% endblock %}
+{% block content %}
+<div class="grid sg-grid" style="grid-template-columns: 300px 1fr; align-items: start;">
+  <div class="panel">
+    <div class="panel-title">STRATEGY GROUPS
+      <span class="spacer"></span>
+      <button class="mini" id="sg-refresh" title="reload groups">REFRESH</button>
+    </div>
+    <div class="panel-body" id="sg-list" style="padding:0"><div class="dim" style="padding:8px">loading&hellip;</div></div>
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:10px; min-width:0;">
+    <div class="panel">
+      <div class="panel-title"><span id="sg-title">SELECT A GROUP</span>
+        <span class="dim" id="sg-type"></span>
+        <span class="spacer"></span>
+        <span class="dim" id="sg-note"></span>
+      </div>
+      <div class="panel-body"><div class="kpi-strip" id="sg-kpis"></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">P&amp;L OVER TIME <span class="dim" id="sg-ccy"></span>
+        <span class="spacer"></span>
+        <label class="dim" for="sg-pos-mode" title="overlay the position on a second axis">POSITIONS</label>
+        <select id="sg-pos-mode">
+          <option value="off">HIDDEN</option>
+          <option value="qty">LEG QTY</option>
+          <option value="legval_disp">LEG VALUE (DISP)</option>
+          <option value="legval_native">LEG VALUE (NATIVE)</option>
+          <option value="value">OPEN VALUE</option>
+        </select>
+        <button class="mini icon-btn" data-fullscreen-chart="sg-chart" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button>
+      </div>
+      <div class="panel-body">
+        <div id="sg-chart" class="chart" style="height:320px"></div>
+        <div class="dim" style="margin-top:4px">P&amp;L = cumulative cash flows of the group's legs + market value of the open
+          position, valued with each day's last known price/FX. Today follows the latest stored price.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">OPEN LEGS <span class="dim" id="sg-legs-count"></span></div>
+      <div class="tbl-wrap" style="max-height: 36vh;">
+        <table class="tbl" id="tbl-sg-legs">
+          <thead><tr><th>TICKER</th><th>TYPE</th><th class="num">QTY</th><th class="num">ENTRY PX</th>
+            <th class="num">PRICE</th><th class="num">VALUE (DISP)</th><th class="num">P&amp;L (DISP)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">TRADES <span class="dim" id="sg-count"></span></div>
+      <div class="tbl-wrap" style="max-height: 44vh;">
+        <table class="tbl" id="tbl-sg-trades">
+          <thead><tr><th>DATE</th><th>OUTFLOW</th><th>INFLOW</th><th>FEE</th><th>NOTE</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/strategy_groups.js"></script>{% endblock %}

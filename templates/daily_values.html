@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}DAILY VALUES{% endblock %}
+{% block content %}
+<div class="grid" style="grid-template-columns: 1fr;">
+  <div class="panel">
+    <div class="panel-title">DAILY PORTFOLIO CHART
+      <label class="dim">VIEW</label>
+      <button class="mini view-toggle" id="dv-view" data-view="value"
+              title="toggle value / index view">VALUE</button>
+      <span class="spacer"></span>
+      <span id="dv-value-ctl" style="display:contents">
+      <label class="dim">Y-MIN</label><input type="number" id="dv-ymin" step="any" style="width:7em">
+      <label class="dim">Y-MAX</label><input type="number" id="dv-ymax" step="any" style="width:7em">
+      </span>
+      <span id="dv-index-ctl" class="hidden" style="display:contents">
+      <span class="dim" title="growth of 100; deposits/disposable income excluded">GROWTH OF 100</span>
+      <label class="dim">VS</label>
+      <span id="dv-indices" style="display:contents"></span>
+      </span>
+      <button class="mini" id="dv-reset" title="reset zoom and y range">RESET</button>
+      <button class="mini icon-btn" data-fullscreen-chart="dv-chart" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button>
+    </div>
+    <div class="panel-body"><div id="dv-chart" class="chart" style="height:240px"></div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">DAILY END VALUES
+      <span class="spacer"></span>
+      <label class="dim">CELL MODE</label>
+      <select id="dv-mode">
+        <option value="value">VALUE (P×Q)</option>
+        <option value="quantity">QUANTITY OWNED</option>
+        <option value="price">PRICE (NATIVE)</option>
+      </select>
+      <label class="dim">DECIMALS</label>
+      <select id="dv-dp">
+        <option value="0" selected>0</option><option value="1">1</option>
+        <option value="2">2</option>
+      </select>
+      <label class="dim">DAYS</label>
+      <select id="dv-days">
+        <option value="0">ALL</option><option value="30">30</option>
+        <option value="90" selected>90</option><option value="365">365</option>
+      </select>
+      <button class="mini" id="dv-rebuild" title="rebuild snapshots from transactions × price history">REBUILD SNAPSHOTS</button>
+      <button class="mini primary" id="dv-csv">DOWNLOAD CSV</button>
+    </div>
+    <div class="tbl-wrap" style="max-height: 64vh;">
+      <table class="tbl tbl-freeze2" id="tbl-dv"><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/daily_values.js"></script>{% endblock %}

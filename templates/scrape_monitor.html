@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}SCRAPE MONITOR{% endblock %}
+{% block content %}
+<div class="grid" style="grid-template-columns: 1fr;">
+  <div class="kpi-strip" id="job-cards"></div>
+  <div class="panel">
+    <div class="panel-title">MAINTENANCE</div>
+    <div class="panel-body">
+      <button class="mini" id="sc-switch-expired" title="move every expired option to the options-archive price source and backfill its history">SWITCH EXPIRED OPTIONS → ARCHIVE</button>
+      <span class="dim">yahoo drops option contracts after expiry; the archive keeps their full EOD history</span>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">RUNS PER HOUR (24H) <span class="dim">green = success · red = error</span><span class="spacer"></span><button class="mini icon-btn" data-fullscreen-chart="sc-hourly" title="fullscreen"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 2H2v4M10 2h4v4M6 14H2v-4M10 14h4v-4"/></svg></button></div>
+    <div class="panel-body"><div id="sc-hourly" class="chart" style="height:200px"></div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">RECENT RUNS
+      <span class="spacer"></span>
+      <label class="dim">JOB</label>
+      <select id="sc-job"><option value="">ALL</option>
+        <option>quotes</option><option>intraday</option><option>daily</option>
+        <option>info</option><option>snapshot</option><option>backup</option></select>
+      <label class="dim">STATUS</label>
+      <select id="sc-status"><option value="">ALL</option>
+        <option>success</option><option>error</option><option>skipped</option></select>
+      <button class="mini" id="sc-apply">APPLY</button>
+    </div>
+    <div class="tbl-wrap" style="max-height: 56vh;">
+      <table class="tbl" id="tbl-runs">
+        <thead><tr><th>TS</th><th>JOB</th><th>TICKER</th><th>STATUS</th>
+          <th>DURATION MS</th><th>MESSAGE</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/scrape.js"></script>{% endblock %}

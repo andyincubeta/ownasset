@@ -1,0 +1,4 @@
+flask>=3.0
+apscheduler>=3.10
+requests>=2.31
+pytest>=8.0

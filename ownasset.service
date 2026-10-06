@@ -1,0 +1,14 @@
+[Unit]
+Description=Gunicorn instance to serve ownasset
+After=network.target
+
+[Service]
+User=user
+Group=www-data
+WorkingDirectory=/home/user/ownasset
+Environment="PATH=/home/user/ownasset/.venv/bin"
+# single worker: exactly one background scheduler; threads handle concurrent requests
+ExecStart=/home/user/ownasset/.venv/bin/gunicorn --workers 1 --threads 4 --bind unix:ownasset.sock -m 007 wsgi:app
+
+[Install]
+WantedBy=multi-user.target
