@@ -8,6 +8,28 @@ display currency. All data stays on your own machine in a single SQLite file.
 
 ---
 
+## Quick Start (Windows, no coding needed)
+
+1. **Install Python 3.10+** from <https://www.python.org/downloads/>. On the first installer screen,
+   tick **"Add python.exe to PATH"**.
+2. **Download OWNASSET** — on this GitHub page click the green **Code** button, then **Download ZIP**.
+
+   ![download zip](./images/img_easyDeploy.png)
+
+3. **Unzip it** — right-click the downloaded `ownasset-main.zip` > **Extract All...**, then open the
+   extracted `ownasset-main` folder (the one that contains `run.bat`).
+4. **Double-click `run.bat`.** The first run takes a minute or two while it sets up and installs
+   everything. If Windows SmartScreen warns you, click **More info** > **Run anyway**.
+5. **Use the app** — your browser opens <http://127.0.0.1:5089> automatically (if the page is blank,
+   refresh it or type the address in yourself). Keep the black window open while you use the app;
+   closing it stops OWNASSET.
+
+Next time, just double-click `run.bat` again. Your data is kept in the `.db` folder inside
+`ownasset-main` — don't delete it. Continue with [First steps in the app](#first-steps-in-the-app).
+Comfortable with a terminal? See [Tutorial 1](#tutorial-1--run-locally-windows--macos--linux).
+
+---
+
 ## Why OWNASSET
 
 - **Your data, your box.** No cloud account, no subscription, no third-party aggregator. One SQLite
