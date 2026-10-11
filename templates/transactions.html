@@ -23,7 +23,7 @@
         <label class="fld">OUTFLOW UNIT
           <input id="txn-out-asset" list="asset-suggestions" style="min-width:180px" placeholder="type ticker">
         </label>
-        <label class="fld">OUTFLOW AMOUNT<input type="number" step="any" id="txn-out-amount"></label>
+        <label class="fld">OUTFLOW AMOUNT<input type="text" inputmode="decimal" data-formula maxlength="100" id="txn-out-amount" placeholder="e.g. 12.5*20"></label>
       </div>
 
       <div class="amber" style="margin:4px 0">INFLOW — party receiving</div>
@@ -37,7 +37,7 @@
         <label class="fld">INFLOW UNIT
           <input id="txn-in-asset" list="asset-suggestions" style="min-width:180px" placeholder="type ticker">
         </label>
-        <label class="fld">INFLOW AMOUNT<input type="number" step="any" id="txn-in-amount"></label>
+        <label class="fld">INFLOW AMOUNT<input type="text" inputmode="decimal" data-formula maxlength="100" id="txn-in-amount" placeholder="e.g. 12.5*20"></label>
       </div>
 
       <div class="form-row">
@@ -45,7 +45,7 @@
         <label class="fld">FEE UNIT
           <input id="txn-fee-asset" list="asset-suggestions" style="min-width:180px" placeholder="type ticker">
         </label>
-        <label class="fld">FEE AMOUNT<input type="number" step="any" id="txn-fee-amount" value="0"></label>
+        <label class="fld">FEE AMOUNT<input type="text" inputmode="decimal" data-formula maxlength="100" id="txn-fee-amount" value="0"></label>
         <label class="fld" style="flex:1">NOTE<input id="txn-note" style="width:100%"></label>
       </div>
 

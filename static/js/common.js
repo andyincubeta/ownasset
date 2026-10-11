@@ -41,6 +41,102 @@ function esc(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/* ----------------------------------------------------- formula input ---- */
+// Hand-written parser on purpose: user text must never reach eval/Function.
+function evalAmount(str) {
+  const s = String(str ?? "").replace(/[,\s]/g, "");
+  if (!s || s.length > 100 || !/^[0-9.+\-*/()]+$/.test(s)) return NaN;
+  let i = 0, depth = 0;
+  const fail = () => { throw new Error("bad formula"); };
+  const expr = () => {
+    let v = term();
+    while (s[i] === "+" || s[i] === "-") v = s[i++] === "+" ? v + term() : v - term();
+    return v;
+  };
+  const term = () => {
+    let v = factor();
+    while (s[i] === "*" || s[i] === "/") v = s[i++] === "*" ? v * factor() : v / factor();
+    return v;
+  };
+  const factor = () => {
+    if (s[i] === "-") { i++; return -factor(); }
+    if (s[i] === "+") { i++; return factor(); }
+    if (s[i] === "(") {
+      if (++depth > 20) fail();
+      i++;
+      const v = expr();
+      if (s[i++] !== ")") fail();
+      depth--;
+      return v;
+    }
+    const m = /^(\d+\.?\d*|\.\d+)/.exec(s.slice(i));
+    if (!m) fail();
+    i += m[0].length;
+    return parseFloat(m[0]);
+  };
+  try {
+    const v = expr();
+    // toPrecision trims float noise, e.g. (12*0.8-1)*20 -> 172 not 172.00000000000003
+    return i === s.length && Number.isFinite(v) ? parseFloat(v.toPrecision(15)) : NaN;
+  } catch (_e) {
+    return NaN;
+  }
+}
+
+/* Read an amount/formula input; blank -> 0, invalid -> throws (callers toast e.message). */
+function readAmount(id) {
+  const el = document.getElementById(id);
+  const raw = el.value.trim();
+  if (!raw) return 0;
+  const v = evalAmount(raw);
+  if (Number.isNaN(v) || v < 0) {
+    el.classList.add("bad");
+    throw new Error(Number.isNaN(v)
+      ? `invalid amount: ${raw.slice(0, 40)}`
+      : `amount cannot be negative: ${raw.slice(0, 40)}`);
+  }
+  return v;
+}
+
+function _formulaHint(el) {
+  let hint = el.nextElementSibling;
+  if (!hint || !hint.classList.contains("formula-hint")) {
+    hint = document.createElement("span");
+    hint.className = "formula-hint";
+    el.after(hint);
+  }
+  return hint;
+}
+
+function _formulaPreview(el) {
+  const raw = el.value.trim();
+  const isFormula = /[+\-*/()]/.test(raw.replace(/^[-+]/, ""));
+  const v = raw ? evalAmount(raw) : 0;
+  el.classList.toggle("bad", Number.isNaN(v) || v < 0);
+  _formulaHint(el).textContent = !raw ? "" : Number.isNaN(v) ? "invalid"
+    : v < 0 ? "cannot be negative" : isFormula ? `= ${fmtQty(v)}` : "";
+  return v;
+}
+
+function _formulaCommit(el) {
+  const v = _formulaPreview(el);
+  if (el.value.trim() && !Number.isNaN(v)) {
+    el.value = String(v);
+    _formulaHint(el).textContent = "";
+  }
+}
+
+// Delegated so inputs inside dynamically built modals work too.
+document.addEventListener("input", e => {
+  if (e.target.matches?.("input[data-formula]")) _formulaPreview(e.target);
+});
+document.addEventListener("focusout", e => {
+  if (e.target.matches?.("input[data-formula]")) _formulaCommit(e.target);
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Enter" && e.target.matches?.("input[data-formula]")) _formulaCommit(e.target);
+});
+
 function normalizeTicker(value) {
   return String(value ?? "").trim().toUpperCase();
 }

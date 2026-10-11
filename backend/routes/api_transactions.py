@@ -9,6 +9,7 @@ txn_date carries a time component; missing/short inputs are normalized.
 import csv
 import io
 import json
+import math
 import re
 
 from flask import Blueprint, Response, jsonify, request
@@ -71,11 +72,22 @@ def _clean(data: dict) -> dict:
                 "outflow_asset_id", "inflow_asset_id", "fee_asset_id"):
         v = data.get(key)
         out[key] = int(v) if v not in (None, "", 0) else None
+    errors = []
     for key in ("outflow_amount", "inflow_amount", "fee_amount"):
+        label = key.replace("_", " ")
         try:
-            out[key] = float(data.get(key) or 0)
+            v = float(data.get(key) or 0)
         except (TypeError, ValueError):
-            out[key] = 0.0
+            v = math.nan
+        # float() accepts "nan"/"inf", and nan slips past every <= 0 check
+        if not math.isfinite(v):
+            errors.append(f"{label} is not a valid number")
+            v = 0.0
+        elif v < 0:
+            errors.append(f"{label} cannot be negative ({v:g})")
+            v = 0.0
+        out[key] = v
+    out["amount_errors"] = errors
     out["outflow_party"] = (data.get("outflow_party") or "").strip()
     out["inflow_party"] = (data.get("inflow_party") or "").strip()
     # a side without a complete flow (asset + amount > 0) stores no party/unit
@@ -91,6 +103,8 @@ def _clean(data: dict) -> dict:
 
 
 def _validate(t: dict) -> str | None:
+    if t.get("amount_errors"):
+        return "; ".join(t["amount_errors"])
     has_out = t["outflow_asset_id"] and t["outflow_amount"] > 0
     has_in = t["inflow_asset_id"] and t["inflow_amount"] > 0
     if not has_out and not has_in:

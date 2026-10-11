@@ -455,6 +455,34 @@ def test_zero_amount_flow_side_cleared(client, sample_portfolio):
     assert t["outflow_amount"] == 0
 
 
+def test_transactions_reject_non_numeric_amounts(client, sample_portfolio):
+    acc = sample_portfolio["account_id"]
+    base = {"txn_date": "2024-03-02 10:00", "inflow_account_id": acc,
+            "inflow_asset_id": sample_portfolio["usd"], "inflow_amount": 25,
+            "outflow_party": "x", "note": "badnum"}
+    for key in ("inflow_amount", "outflow_amount", "fee_amount"):
+        for bad in ("nan", "inf", "-inf", "1e400", "(1+1)", "abc", [1]):
+            r = client.post("/api/transactions", json={**base, key: bad})
+            assert r.status_code == 400, (key, bad)
+    r = client.post("/api/transactions", json={
+        **base, "fee_asset_id": sample_portfolio["usd"], "fee_amount": -1})
+    assert r.status_code == 400
+    for key in ("inflow_amount", "outflow_amount"):
+        r = client.post("/api/transactions", json={
+            **base, "outflow_asset_id": sample_portfolio["usd"], key: -320})
+        assert r.status_code == 400
+        assert "cannot be negative" in r.get_json()["error"]
+    assert client.get("/api/transactions?q=badnum").get_json() == []
+
+    tid = client.post("/api/transactions", json=base).get_json()["id"]
+    assert client.put(f"/api/transactions/{tid}",
+                      json={"inflow_amount": "nan"}).status_code == 400
+    assert client.get("/api/transactions?q=badnum").get_json()[0]["inflow_amount"] == 25
+    for bad in ("abc", "nan", "inf"):
+        r = client.post(f"/api/transactions/{tid}/split",
+                        json={"leg": "inflow", "quantity": bad})
+        assert r.status_code == 400, bad
+
 def test_asset_prices_matrix_endpoint(client, sample_portfolio):
     client.post("/api/history/snapshots/rebuild",
                 json={"start": "2024-02-01", "end": "2024-02-02"})

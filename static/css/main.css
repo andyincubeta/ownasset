@@ -287,6 +287,9 @@ input, select, textarea, button {
   padding: 0.25em 0.5em; outline: none;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--amber); }
+input.bad, input.bad:focus { border-color: var(--red); }
+.formula-hint { font-size: var(--fs-xs); color: var(--amber); text-transform: none; }
+.formula-hint:empty { display: none; }
 input[type="checkbox"] { accent-color: var(--amber); }
 button { cursor: pointer; background: var(--panel2); }
 button:hover { border-color: var(--amber); color: var(--amber); }

@@ -72,7 +72,7 @@ async function editModal(t, onSaved) {
        <label class="fld">EXTERNAL NAME<input id="e-out-party" value="${esc(t.outflow_party)}"></label>
        <label class="fld">UNIT<input id="e-out-asset" list="e-out-asset-list"
          value="${esc(t.outflow_ticker || "")}" placeholder="type ticker"></label>
-       <label class="fld">AMOUNT<input type="number" step="any" id="e-out-amount" value="${t.outflow_amount}"></label>
+       <label class="fld">AMOUNT<input type="text" inputmode="decimal" data-formula maxlength="100" id="e-out-amount" value="${esc(t.outflow_amount)}"></label>
      </div>
      <div class="amber">INFLOW</div>
      <div class="form-row">
@@ -80,13 +80,13 @@ async function editModal(t, onSaved) {
        <label class="fld">EXTERNAL NAME<input id="e-in-party" value="${esc(t.inflow_party)}"></label>
        <label class="fld">UNIT<input id="e-in-asset" list="e-in-asset-list"
          value="${esc(t.inflow_ticker || "")}" placeholder="type ticker"></label>
-       <label class="fld">AMOUNT<input type="number" step="any" id="e-in-amount" value="${t.inflow_amount}"></label>
+       <label class="fld">AMOUNT<input type="text" inputmode="decimal" data-formula maxlength="100" id="e-in-amount" value="${esc(t.inflow_amount)}"></label>
      </div>
      <div class="form-row">
        <label class="fld">FEE ACCOUNT${partySelect("e-fee-acc", t.fee_account_id)}</label>
        <label class="fld">FEE UNIT<input id="e-fee-asset" list="e-fee-asset-list"
          value="${esc(t.fee_ticker || "")}" placeholder="type ticker"></label>
-       <label class="fld">FEE AMOUNT<input type="number" step="any" id="e-fee-amount" value="${t.fee_amount}"></label>
+       <label class="fld">FEE AMOUNT<input type="text" inputmode="decimal" data-formula maxlength="100" id="e-fee-amount" value="${esc(t.fee_amount)}"></label>
        <label class="fld" style="flex:1">NOTE<input id="e-note" value="${esc(t.note)}" style="width:100%"></label>
      </div>`,
     `<button class="primary" id="e-save">SAVE CHANGES</button>
@@ -104,14 +104,14 @@ async function editModal(t, onSaved) {
         outflow_account_id: outAcc === EXTERNAL ? null : +outAcc,
         outflow_party: outAcc === EXTERNAL ? document.getElementById("e-out-party").value : "",
         outflow_asset_id: assetByTickerInput("e-out-asset"),
-        outflow_amount: +document.getElementById("e-out-amount").value || 0,
+        outflow_amount: readAmount("e-out-amount"),
         inflow_account_id: inAcc === EXTERNAL ? null : +inAcc,
         inflow_party: inAcc === EXTERNAL ? document.getElementById("e-in-party").value : "",
         inflow_asset_id: assetByTickerInput("e-in-asset"),
-        inflow_amount: +document.getElementById("e-in-amount").value || 0,
+        inflow_amount: readAmount("e-in-amount"),
         fee_account_id: feeAcc === EXTERNAL ? null : +feeAcc || null,
         fee_asset_id: assetByTickerInput("e-fee-asset"),
-        fee_amount: +document.getElementById("e-fee-amount").value || 0,
+        fee_amount: readAmount("e-fee-amount"),
         note: document.getElementById("e-note").value,
       };
     } catch (e) {
