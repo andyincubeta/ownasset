@@ -30,6 +30,18 @@ Comfortable with a terminal? See [Tutorial 1](#tutorial-1--run-locally-windows--
 
 ---
 
+## After entering transactions: Rebuild Snapshots
+
+The portfolio value chart and the DAILY page are drawn from daily snapshots, which are normally taken
+automatically every evening. After you add, edit, import or delete transactions — especially ones
+dated in the past — click **REBUILD SNAPSHOTS** to recalculate your history straight away. You'll
+find it in the **PORTFOLIO VALUE** panel on the HOME page (circled below) and on the DAILY (`F6`)
+page.
+
+![rebuild snapshots button](./images/img_rebuildSnapshots.png)
+
+---
+
 ## Why OWNASSET
 
 - **Your data, your box.** No cloud account, no subscription, no third-party aggregator. One SQLite

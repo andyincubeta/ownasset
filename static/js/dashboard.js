@@ -404,6 +404,8 @@ async function refreshSeries() {
     chartPrefs.set("dashboard", { idx_base: "" });
     refreshSeries();
   });
+  document.getElementById("series-rebuild").addEventListener("click",
+    () => rebuildSnapshots(refreshSeries));
   document.getElementById("series-reset").addEventListener("click", () => {
     document.getElementById("y-min").value = "";
     document.getElementById("y-max").value = "";

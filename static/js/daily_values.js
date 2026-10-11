@@ -206,13 +206,8 @@ document.getElementById("dv-csv").addEventListener("click", () => {
   const mode = document.getElementById("dv-mode").value;
   window.location = `/api/history/daily-values.csv?mode=${mode}`;
 });
-document.getElementById("dv-rebuild").addEventListener("click", async () => {
-  if (!await confirmDialog("Rebuild all snapshots from transactions × price history? " +
-      "This recomputes every daily row.")) return;
-  const res = await api("/api/history/snapshots/rebuild", { method: "POST", body: {} });
-  toast(`rebuilt ${res.rows} snapshot rows`, "ok");
-  load();
-});
+document.getElementById("dv-rebuild").addEventListener("click", () => rebuildSnapshots(load));
+document.getElementById("dv-chart-rebuild").addEventListener("click", () => rebuildSnapshots(load));
 
 dvChart = mkChart("dv-chart");
 (async () => {

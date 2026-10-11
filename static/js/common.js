@@ -256,6 +256,13 @@ function confirmDialog(msg) {
     document.getElementById("cf-no").onclick = () => { closeModal(); resolve(false); };
   });
 }
+async function rebuildSnapshots(onDone) {
+  if (!await confirmDialog("Rebuild all snapshots from transactions × price history? " +
+      "This recomputes every daily row.")) return;
+  const res = await api("/api/history/snapshots/rebuild", { method: "POST", body: {} });
+  toast(`rebuilt ${res.rows} snapshot rows`, "ok");
+  if (onDone) onDone();
+}
 
 /* --------------------------------------------------------- row menu ----- */
 function rowMenu(anchorEl, items) {
