@@ -519,6 +519,27 @@ def test_index_sparks_endpoint(client, sample_portfolio):
     assert sp["boundary_ts"] == 1700000000 - 43200
 
 
+def test_index_spark_ends_at_fresher_live_quote(client, sample_portfolio):
+    client.get("/api/dashboard/index-sparks")  # creates the benchmark assets
+    with db.db_conn() as conn:
+        aid = conn.execute("SELECT id FROM assets WHERE ticker='^GSPC'").fetchone()[0]
+        conn.execute("INSERT INTO latest_quotes(asset_id, price, prev_close, ts, source) "
+                     "VALUES (?, 5050, 4900, 1700000000, 'test')", (aid,))
+        conn.executemany(
+            "INSERT INTO prices_intraday(asset_id, bar_interval, ts, open, high, low, close, "
+            "volume) VALUES (?, '60m', ?, NULL, NULL, NULL, ?, 0)",
+            [(aid, 1699992000, 4990), (aid, 1699995600, 5000)])  # same UTC day, earlier
+
+    def spark():
+        return next(d for d in client.get("/api/dashboard/index-sparks").get_json()
+                    if d["key"] == "SP500")["spark"]
+
+    assert spark()[-1] == [1700000000, 5050]
+    with db.db_conn() as conn:  # next-day quote would start a new day segment: not appended
+        conn.execute("UPDATE latest_quotes SET ts = 1700100000 WHERE asset_id = ?", (aid,))
+    assert spark()[-1] == [1699995600, 5000]
+
+
 def test_snapshots_rebuild_endpoint_bounds_validation(client, sample_portfolio):
     ok = client.post("/api/history/snapshots/rebuild",
                      json={"start": "2024-01-01 12:34:56", "end": "2024-02-02T18:00:00"})

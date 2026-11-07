@@ -32,15 +32,27 @@ EXT_BACKFILL_DAYS = 729
 EXT_RECENT_DAYS = 35
 
 
+def _cutoff_day(ts: int, cutoff_sec: int) -> str:
+    """Day a timestamp counts toward. Day D ends at the first HH:MM UTC after
+    D 00:00 (00:00 -> midnight ending D)."""
+    return _utc_date_from_ts(ts + (86400 - cutoff_sec) % 86400)
+
+
 def _ext_close_rows(bars: list[dict], cutoff_sec: int) -> dict[str, tuple[float, int]]:
-    """{date: (close, bar_ts)} = last bar starting before each date's UTC cutoff.
-    Day D ends at the first HH:MM UTC after D 00:00 (00:00 -> midnight ending D)."""
-    shift = (86400 - cutoff_sec) % 86400
+    """{date: (close, bar_ts)} = last bar starting before each date's UTC cutoff."""
     out: dict[str, tuple[float, int]] = {}
     for b in sorted(bars, key=lambda x: x["ts"]):
         if b["close"] is not None:
-            out[_utc_date_from_ts(b["ts"] + shift)] = (b["close"], b["ts"])
+            out[_cutoff_day(b["ts"], cutoff_sec)] = (b["close"], b["ts"])
     return out
+
+
+def _store_ext_quote(conn, asset_id: int, price: float, ts: int, cutoff_sec: int):
+    """Live quote -> ext_close of its day (existing trading-day rows only, newer only)."""
+    conn.execute(
+        "UPDATE prices_daily SET ext_close = ?, ext_close_ts = ? "
+        "WHERE asset_id = ? AND date = ? AND (ext_close_ts IS NULL OR ext_close_ts < ?)",
+        (price, ts, asset_id, _cutoff_day(ts, cutoff_sec), ts))
 
 
 def fetch_ext_close(asset_id: int, ticker: str, full: bool = False) -> int:
@@ -136,6 +148,8 @@ def job_quotes():
             "SELECT id, ticker FROM assets WHERE active = 1 AND is_yahoo_tracked = 1 "
             "AND price_provider = 'yahoo'").fetchall()
         fx_tickers = fx.needed_fx_tickers(conn)
+        cutoff = db.cutoff_seconds(conn) if db.get_setting(conn, "day_close_mode") == "cutoff" \
+            else None
     ticker_map = {a["ticker"]: a["id"] for a in assets}
     universe = list(ticker_map) + fx_tickers
     if not universe:
@@ -154,6 +168,8 @@ def job_quotes():
                     "session_date=excluded.session_date",
                     (ticker_map[tkr], q["price"], q["prev_close"], q["ts"] or now,
                      q.get("session_date")))
+                if cutoff is not None:
+                    _store_ext_quote(conn, ticker_map[tkr], q["price"], q["ts"] or now, cutoff)
             elif tkr.endswith("=X") and q["price"] is not None:
                 fx.store_latest(conn, tkr[:-2], q["price"], q["ts"] or now)
     # fallback: per-ticker chart meta for anything the batch endpoint missed
@@ -175,6 +191,8 @@ def job_quotes():
                         "session_date=excluded.session_date",
                         (ticker_map[tkr], q["price"], q["prev_close"], q["ts"],
                          q.get("session_date")))
+                    if cutoff is not None:
+                        _store_ext_quote(conn, ticker_map[tkr], q["price"], q["ts"], cutoff)
                 else:
                     fx.store_latest(conn, tkr[:-2], q["price"], q["ts"])
             fetched_fallback += 1

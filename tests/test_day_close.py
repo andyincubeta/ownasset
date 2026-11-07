@@ -61,6 +61,50 @@ def test_fetch_ext_close_updates_existing_rows_only(sample_portfolio, monkeypatc
     assert [(r["date"], r["ext_close"]) for r in rows] == [("2024-02-02", 181.5)]
 
 
+def _quotes_return(monkeypatch, quotes: dict):
+    monkeypatch.setattr(scheduler.client, "get_quotes", lambda tickers: {
+        t: {"price": p, "prev_close": 178.0, "ts": ts, "session_date": None}
+        for t, (p, ts) in quotes.items() if t in tickers})
+    monkeypatch.setattr(scheduler.client, "get_quote_via_chart",
+                        lambda t: {"price": None, "prev_close": None, "ts": None})
+
+
+def _ext(aapl):
+    with db.db_conn() as c:
+        r = c.execute("SELECT ext_close, ext_close_ts FROM prices_daily "
+                      "WHERE asset_id = ? AND date = '2024-02-02'", (aapl,)).fetchone()
+    return r["ext_close"], r["ext_close_ts"]
+
+
+def test_job_quotes_keeps_ext_close_current_in_cutoff_mode(sample_portfolio, monkeypatch):
+    aapl = sample_portfolio["aapl"]
+    with db.db_conn() as c:
+        db.set_setting(c, "day_close_mode", "cutoff")
+    _quotes_return(monkeypatch, {"AAPL": (183.0, _ts("2024-02-02 23:30"))})
+    scheduler.job_quotes()
+    assert _ext(aapl) == (183.0, _ts("2024-02-02 23:30"))
+    # past the 00:00 cutoff: belongs to 2024-02-03 (no trading-day row) -> untouched
+    _quotes_return(monkeypatch, {"AAPL": (185.0, _ts("2024-02-03 00:30"))})
+    scheduler.job_quotes()
+    assert _ext(aapl) == (183.0, _ts("2024-02-02 23:30"))
+    # an older tick never overwrites a newer stored one
+    _quotes_return(monkeypatch, {"AAPL": (170.0, _ts("2024-02-02 21:00"))})
+    scheduler.job_quotes()
+    assert _ext(aapl) == (183.0, _ts("2024-02-02 23:30"))
+
+
+def test_job_quotes_leaves_ext_close_alone_in_market_mode(sample_portfolio, monkeypatch):
+    aapl = sample_portfolio["aapl"]
+    _quotes_return(monkeypatch, {"AAPL": (183.0, _ts("2024-02-02 23:30"))})
+    scheduler.job_quotes()
+    assert _ext(aapl) == (None, None)
+
+
+def test_cutoff_day_evening_cutoff():
+    assert scheduler._cutoff_day(_ts("2024-02-02 19:59"), 20 * 3600) == "2024-02-02"
+    assert scheduler._cutoff_day(_ts("2024-02-02 20:00"), 20 * 3600) == "2024-02-03"
+
+
 def test_settings_validation(client):
     assert client.post("/api/settings", json={"day_close_mode": "x"}).status_code == 400
     assert client.post("/api/settings", json={"day_close_cutoff_utc": "25:00"}).status_code == 400

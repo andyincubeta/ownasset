@@ -84,6 +84,11 @@ def index_sparks():
                     def _day(ts):
                         return datetime.datetime.fromtimestamp(
                             ts, tz=datetime.timezone.utc).date()
+                    # bars arrive hourly; end the line at the fresher same-day live quote
+                    if q and q["price"] is not None and q["ts"] \
+                            and int(q["ts"]) > spark[-1][0] \
+                            and _day(int(q["ts"])) == _day(spark[-1][0]):
+                        spark.append([int(q["ts"]), float(q["price"])])
                     last_day = _day(spark[-1][0])
                     if any(_day(ts) != last_day for ts, _c in spark):
                         boundary = next(ts for ts, _c in spark if _day(ts) == last_day)
