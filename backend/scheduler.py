@@ -479,13 +479,17 @@ _JOB_FUNCS = {
 
 # ------------------------------------------------------------- lifecycle --
 
+UTC = datetime.timezone.utc
+
+
+# Triggers ignore the scheduler's timezone and default to server local time, so pass UTC explicitly.
 def _cron_from_hhmm(value: str, fallback: str) -> CronTrigger:
     try:
         hh, mm = value.strip().split(":")
-        return CronTrigger(hour=int(hh), minute=int(mm))
+        return CronTrigger(hour=int(hh), minute=int(mm), timezone=UTC)
     except Exception:
         hh, mm = fallback.split(":")
-        return CronTrigger(hour=int(hh), minute=int(mm))
+        return CronTrigger(hour=int(hh), minute=int(mm), timezone=UTC)
 
 
 DAYEND_DELAY_SEC = 15 * 60
@@ -502,7 +506,7 @@ def _dayend_trigger(s: dict) -> CronTrigger | None:
     except ValueError:
         sec = 0
     sec = (sec + DAYEND_DELAY_SEC) % 86400
-    return CronTrigger(hour=sec // 3600, minute=sec % 3600 // 60)
+    return CronTrigger(hour=sec // 3600, minute=sec % 3600 // 60, timezone=UTC)
 
 
 def _apply_dayend_job(sched: BackgroundScheduler, s: dict):
@@ -522,10 +526,10 @@ def start() -> BackgroundScheduler:
     with db.db_conn() as conn:
         s = db.get_all_settings(conn)
     sched.add_job(lambda: _timed("quotes", job_quotes), IntervalTrigger(
-        seconds=max(10, int(float(s["quote_interval_seconds"])))), id="quotes",
+        seconds=max(10, int(float(s["quote_interval_seconds"]))), timezone=UTC), id="quotes",
         max_instances=1, coalesce=True)
     sched.add_job(lambda: _timed("intraday", job_intraday), IntervalTrigger(
-        minutes=max(1, int(float(s["intraday_interval_minutes"])))), id="intraday",
+        minutes=max(1, int(float(s["intraday_interval_minutes"]))), timezone=UTC), id="intraday",
         max_instances=1, coalesce=True)
     sched.add_job(lambda: _timed("daily", job_daily),
                   _cron_from_hhmm(s["daily_refresh_time"], "22:30"), id="daily",
@@ -555,9 +559,9 @@ def reschedule():
     with db.db_conn() as conn:
         s = db.get_all_settings(conn)
     _scheduler.reschedule_job("quotes", trigger=IntervalTrigger(
-        seconds=max(10, int(float(s["quote_interval_seconds"])))))
+        seconds=max(10, int(float(s["quote_interval_seconds"]))), timezone=UTC))
     _scheduler.reschedule_job("intraday", trigger=IntervalTrigger(
-        minutes=max(1, int(float(s["intraday_interval_minutes"])))))
+        minutes=max(1, int(float(s["intraday_interval_minutes"]))), timezone=UTC))
     _scheduler.reschedule_job("daily", trigger=_cron_from_hhmm(s["daily_refresh_time"], "22:30"))
     _scheduler.reschedule_job("info", trigger=_cron_from_hhmm(s["info_refresh_time"], "21:00"))
     _scheduler.reschedule_job("snapshot", trigger=_cron_from_hhmm(s["snapshot_time"], "23:59"))
@@ -608,7 +612,7 @@ def job_status() -> list[dict]:
             job = jobs.get(name)
             out.append({
                 "job": name,
-                "next_run": job.next_run_time.strftime("%Y-%m-%d %H:%M:%S")
+                "next_run": job.next_run_time.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
                 if job and job.next_run_time else None,
                 "last_run": dict(last) if last else None,
                 "success_24h": agg["ok"] or 0, "total_24h": agg["total"] or 0,

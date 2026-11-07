@@ -120,6 +120,15 @@ def test_dayend_job_only_in_cutoff_mode():
     assert sched.get_job("daily_dayend") is None
 
 
+def test_triggers_fire_in_utc():
+    now = datetime.datetime(2026, 11, 7, 5, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+    nxt = scheduler._cron_from_hhmm("22:30", "00:00").get_next_fire_time(None, now)
+    assert nxt.utcoffset() == datetime.timedelta(0)
+    assert (nxt.hour, nxt.minute) == (22, 30)
+    trig = scheduler._dayend_trigger({"day_close_mode": "cutoff", "day_close_cutoff_utc": "00:00"})
+    assert trig.get_next_fire_time(None, now).utcoffset() == datetime.timedelta(0)
+
+
 def test_settings_validation(client):
     assert client.post("/api/settings", json={"day_close_mode": "x"}).status_code == 400
     assert client.post("/api/settings", json={"day_close_cutoff_utc": "25:00"}).status_code == 400
