@@ -137,6 +137,34 @@ def test_display_currency_cash_stays_at_face_value(sample_portfolio):
         assert abs(live["cells"][0] - (550000 + 103000 / 0.13)) < 0.01
 
 
+def test_dayend_resync_makes_closed_day_match_live_row(sample_portfolio):
+    """Cutoff mode, market closed: yesterday's snapshot (taken at a live tick)
+    is re-priced at the day-end close, which the live row also uses."""
+    import datetime
+
+    from backend import scheduler
+
+    aapl = sample_portfolio["aapl"]
+    yday = (datetime.datetime.now(datetime.timezone.utc).date()
+            - datetime.timedelta(days=1)).isoformat()
+    with db.db_conn() as c:
+        db.set_setting(c, "day_close_mode", "cutoff")
+        c.execute("INSERT INTO prices_daily(asset_id, date, close, adj_close) "
+                  "VALUES (?, ?, 179, 179)", (aapl, yday))
+        c.execute("UPDATE latest_quotes SET price = 181, session_date = ? WHERE asset_id = ?",
+                  (yday, aapl))
+        snapshots.take_snapshot(c, date=yday)
+        c.execute("UPDATE prices_daily SET ext_close = 182, ext_close_ts = 1 "
+                  "WHERE asset_id = ? AND date = ?", (aapl, yday))
+    scheduler._resync_recent_snapshots()
+    with db.db_conn() as c:
+        m = snapshots.daily_values_matrix(c, include_today=True)
+    live, frozen = m["rows"][0], m["rows"][1]
+    assert live.get("provisional") is True and frozen["date"] == yday
+    assert frozen["cells"][0] == pytest.approx(live["cells"][0])
+    assert frozen["cells"][0] == pytest.approx(173400 + 100 * (182 - 180))
+
+
 def test_catchup_snapshots_backfills_gap(sample_portfolio, monkeypatch):
     import datetime
 

@@ -13,7 +13,8 @@ bp = Blueprint("api_settings", __name__, url_prefix="/api/settings")
 log = get_logger("dashboard.api")
 
 SCHEDULER_KEYS = {"quote_interval_seconds", "intraday_interval_minutes", "intraday_bar",
-                  "daily_refresh_time", "info_refresh_time", "snapshot_time", "backup_time"}
+                  "daily_refresh_time", "info_refresh_time", "snapshot_time", "backup_time",
+                  "day_close_mode", "day_close_cutoff_utc"}
 
 
 def _utc_timestamp(value) -> int:

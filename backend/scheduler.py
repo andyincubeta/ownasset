@@ -488,6 +488,32 @@ def _cron_from_hhmm(value: str, fallback: str) -> CronTrigger:
         return CronTrigger(hour=int(hh), minute=int(mm))
 
 
+DAYEND_DELAY_SEC = 15 * 60
+
+
+def _dayend_trigger(s: dict) -> CronTrigger | None:
+    """Cutoff mode only: re-run job_daily shortly after the day end to finalize
+    ext_close and re-price yesterday's snapshot."""
+    if s.get("day_close_mode") != "cutoff":
+        return None
+    try:
+        hh, mm = str(s.get("day_close_cutoff_utc") or "00:00").strip().split(":")
+        sec = int(hh) * 3600 + int(mm) * 60
+    except ValueError:
+        sec = 0
+    sec = (sec + DAYEND_DELAY_SEC) % 86400
+    return CronTrigger(hour=sec // 3600, minute=sec % 3600 // 60)
+
+
+def _apply_dayend_job(sched: BackgroundScheduler, s: dict):
+    trigger = _dayend_trigger(s)
+    if sched.get_job("daily_dayend"):
+        sched.remove_job("daily_dayend")
+    if trigger is not None:
+        sched.add_job(lambda: _timed("daily", job_daily), trigger, id="daily_dayend",
+                      max_instances=1, coalesce=True, misfire_grace_time=3600)
+
+
 def start() -> BackgroundScheduler:
     global _scheduler
     if _scheduler is not None:
@@ -513,6 +539,7 @@ def start() -> BackgroundScheduler:
     sched.add_job(lambda: _timed("backup", job_backup),
                   _cron_from_hhmm(s["backup_time"], "00:30"), id="backup",
                   max_instances=1, coalesce=True, misfire_grace_time=3600)
+    _apply_dayend_job(sched, s)
     sched.start()
     _scheduler = sched
     threading.Thread(target=_timed, args=("snapshot", catchup_snapshots), daemon=True,
@@ -535,6 +562,7 @@ def reschedule():
     _scheduler.reschedule_job("info", trigger=_cron_from_hhmm(s["info_refresh_time"], "21:00"))
     _scheduler.reschedule_job("snapshot", trigger=_cron_from_hhmm(s["snapshot_time"], "23:59"))
     _scheduler.reschedule_job("backup", trigger=_cron_from_hhmm(s["backup_time"], "00:30"))
+    _apply_dayend_job(_scheduler, s)
     log.info("scheduler rescheduled from settings")
 
 

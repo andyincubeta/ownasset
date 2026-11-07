@@ -105,6 +105,21 @@ def test_cutoff_day_evening_cutoff():
     assert scheduler._cutoff_day(_ts("2024-02-02 20:00"), 20 * 3600) == "2024-02-03"
 
 
+def test_dayend_job_only_in_cutoff_mode():
+    from apscheduler.schedulers.background import BackgroundScheduler
+    sched = BackgroundScheduler(timezone=datetime.timezone.utc)
+    scheduler._apply_dayend_job(sched, {"day_close_mode": "market",
+                                        "day_close_cutoff_utc": "00:00"})
+    assert sched.get_job("daily_dayend") is None
+    scheduler._apply_dayend_job(sched, {"day_close_mode": "cutoff",
+                                        "day_close_cutoff_utc": "23:50"})
+    trig = str(sched.get_job("daily_dayend").trigger)
+    assert "hour='0'" in trig and "minute='5'" in trig  # 23:50 + 15 min wraps
+    scheduler._apply_dayend_job(sched, {"day_close_mode": "market",
+                                        "day_close_cutoff_utc": "23:50"})
+    assert sched.get_job("daily_dayend") is None
+
+
 def test_settings_validation(client):
     assert client.post("/api/settings", json={"day_close_mode": "x"}).status_code == 400
     assert client.post("/api/settings", json={"day_close_cutoff_utc": "25:00"}).status_code == 400
