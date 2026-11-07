@@ -112,51 +112,6 @@ def assign_to_group(group_id):
     return jsonify({"ok": True, "updated": updated})
 
 
-@bp.get("/<int:group_id>/leg-candidates")
-def leg_candidates(group_id):
-    """Ungrouped trades on one position since the group's first trade in it.
-    'suggested' marks the shortest run after the group's last trade there that
-    brings the group qty within the account position."""
-    try:
-        account_id = int(request.args["account_id"])
-        asset_id = int(request.args["asset_id"])
-    except (KeyError, ValueError):
-        return jsonify({"error": "account_id and asset_id are required"}), 400
-    with db.db_conn() as conn:
-        if conn.execute("SELECT 1 FROM txn_groups WHERE id = ?", (group_id,)).fetchone() is None:
-            return jsonify({"error": "group not found"}), 404
-        h = portfolio.trade_history(conn).get((account_id, asset_id))
-        d = conn.execute("SELECT multiplier FROM derivative_details WHERE asset_id = ?",
-                         (asset_id,)).fetchone()
-    mult = float(d["multiplier"]) if d and d["multiplier"] else 1.0
-    events = h["events"] if h else []
-    mine = [i for i, e in enumerate(events) if e["group_id"] == group_id]
-    if not mine:
-        return jsonify({"error": "group has no trades on this position"}), 404
-    group_qty = sum(events[i]["delta"] for i in mine)
-    position_qty = h["state"]["qty"]
-    cands = [dict(e, suggested=False, _i=i) for i, e in enumerate(events)
-             if i > mine[0] and e["group_id"] is None]
-    after = [c for c in cands if c["_i"] > mine[-1]]
-    run = group_qty
-    for n, c in enumerate(after):
-        run += c["delta"]
-        if run * position_qty >= 0 and abs(run) <= abs(position_qty) + 1e-9:
-            for s in after[:n + 1]:
-                s["suggested"] = True
-            break
-    picked = sum(c["delta"] for c in cands if c["suggested"])
-    return jsonify({
-        "group_qty": group_qty, "position_qty": position_qty,
-        "group_qty_after": group_qty + picked,
-        "candidates": [{
-            "txn_id": c["txn_id"], "txn_date": c["txn_date"], "side": c["side"],
-            "delta": c["delta"], "px": c["px"] / mult if c["px"] is not None else None,
-            "note": c["note"], "suggested": c["suggested"],
-        } for c in cands],
-    })
-
-
 @bp.post("/unassign")
 def unassign_from_group():
     try:
@@ -175,8 +130,9 @@ def unassign_from_group():
 @bp.post("/from-positions")
 def group_from_positions():
     """Create (or extend) a group from holdings-table positions: assigns every
-    transaction of each position's CURRENT open cycle. Txns already in another
-    group are left untouched and reported back."""
+    UNGROUPED transaction of each position's open ungrouped cycle (works even
+    when grouped sleeves offset the net to zero). Open trades of other groups
+    are left untouched and reported back."""
     data = _body()
     positions = data.get("positions") or []
     try:
@@ -213,11 +169,11 @@ def group_from_positions():
         no_position: list[dict] = []
         for acc, aid in keys:
             h = hist.get((acc, aid))
-            if not h or abs(h["state"]["qty"]) <= 1e-9:
+            if not h or all(abs(sl["state"]["qty"]) <= 1e-9 for sl in h["sleeves"].values()):
                 no_position.append({"account_id": acc, "asset_id": aid})
                 continue
             for e in h["events"]:
-                if e["cycle"] != h["cycle"]:
+                if not e["current"]:
                     continue
                 if e["group_id"] and e["group_id"] != gid:
                     skipped[e["txn_id"]] = e["group_id"]

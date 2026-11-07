@@ -338,11 +338,13 @@ def test_buy_price_covers_current_cycle_only(sample_portfolio):
     with db.db_conn() as c:
         _txn(c, "2024-03-01 10:00:00", acc, aapl, 100, acc, usd, 17000)  # sell all @170
         _txn(c, "2024-03-05 10:00:00", acc, usd, 10000, acc, aapl, 50)   # rebuy @200
-        costs = portfolio.avg_trade_prices(c)
-        assert abs(costs[(acc, aapl)]["buy"] - 200.0) < 1e-9
+        hist = portfolio.trade_history(c)
+        state = hist[(acc, aapl)]["sleeves"][None]["state"]
+        assert abs(portfolio.sleeve_entry_px(state) - 200.0) < 1e-9
         # before the flat point the first cycle still applies
-        old = portfolio.avg_trade_prices(c, as_of="2024-02-28")
-        assert abs(old[(acc, aapl)]["buy"] - 150.0) < 1e-9
+        old = portfolio.trade_history(c, as_of="2024-02-28")
+        state = old[(acc, aapl)]["sleeves"][None]["state"]
+        assert abs(portfolio.sleeve_entry_px(state) - 150.0) < 1e-9
         s = portfolio.summary(c, "USD")
     aapl_h = next(h for h in s["holdings"] if h["ticker"] == "AAPL")
     assert abs(aapl_h["avg_cost"] - 200.0) < 1e-9
@@ -358,9 +360,9 @@ def test_sell_price_covers_current_short_cycle_only(sample_portfolio):
         _txn(c, "2024-03-01 10:00:00", acc, shrt, 10, acc, usd, 1000)  # short @100
         _txn(c, "2024-03-02 10:00:00", acc, usd, 1000, acc, shrt, 10)  # cover to 0
         _txn(c, "2024-03-03 10:00:00", acc, shrt, 5, acc, usd, 600)    # short @120
-        costs = portfolio.avg_trade_prices(c)
-    assert abs(costs[(acc, shrt)]["sell"] - 120.0) < 1e-9
-    assert "buy" not in costs[(acc, shrt)]
+        state = portfolio.trade_history(c)[(acc, shrt)]["sleeves"][None]["state"]
+    assert abs(portfolio.sleeve_entry_px(state) - 120.0) < 1e-9
+    assert state["bq"] == 0
 
 
 def test_earning_native_and_display(sample_portfolio):

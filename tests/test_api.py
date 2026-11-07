@@ -602,9 +602,11 @@ def test_position_trades_endpoint(client, sample_portfolio):
     url = f"/api/dashboard/position-trades?asset_id={aapl}&account_id={acc}"
 
     data = client.get(url).get_json()
-    assert data["ticker"] == "AAPL" and data["current_cycle"] == 0
+    assert data["ticker"] == "AAPL" and data["sleeves"][0]["cycle"] == 0
     assert data["open_qty"] == pytest.approx(100)
-    assert data["avg_buy"] == pytest.approx(150) and data["avg_sell"] is None
+    s = data["sleeves"][0]
+    assert s["group_id"] is None
+    assert s["avg_buy"] == pytest.approx(150) and s["avg_sell"] is None
     assert len(data["trades"]) == 1
     t = data["trades"][0]
     assert t["side"] == "buy" and t["px"] == pytest.approx(150)
@@ -617,8 +619,9 @@ def test_position_trades_endpoint(client, sample_portfolio):
         "inflow_account_id": acc, "inflow_asset_id": usd, "inflow_amount": 9500})
     data = client.get(url).get_json()
     assert data["open_qty"] == pytest.approx(50)
-    assert data["avg_sell"] == pytest.approx(190)
-    assert data["realized"] == pytest.approx((190 - 150) * 50)
+    s = data["sleeves"][0]
+    assert s["avg_sell"] == pytest.approx(190)
+    assert s["realized"] == pytest.approx((190 - 150) * 50)
 
     # closing the rest ends the cycle; a re-buy starts a fresh one
     client.post("/api/transactions", json={
@@ -630,10 +633,12 @@ def test_position_trades_endpoint(client, sample_portfolio):
         "outflow_account_id": acc, "outflow_asset_id": usd, "outflow_amount": 3000,
         "inflow_account_id": acc, "inflow_asset_id": aapl, "inflow_amount": 30})
     data = client.get(url).get_json()
-    assert data["current_cycle"] == 1
+    s = data["sleeves"][0]
+    assert s["cycle"] == 1
     assert data["open_qty"] == pytest.approx(30)
-    assert data["avg_buy"] == pytest.approx(100) and data["avg_sell"] is None
+    assert s["avg_buy"] == pytest.approx(100) and s["avg_sell"] is None
     assert [t["cycle"] for t in data["trades"]] == [0, 0, 0, 1]
+    assert [t["current"] for t in data["trades"]] == [False, False, False, True]
 
     assert client.get("/api/dashboard/position-trades").status_code == 400
     assert client.get(f"/api/dashboard/position-trades?asset_id=999999&account_id={acc}"

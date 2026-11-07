@@ -145,80 +145,91 @@ def open_cycle_states(rows) -> dict[tuple[int, int], dict]:
 def trade_history(conn: sqlite3.Connection,
                   as_of: str | None = None) -> dict[tuple[int, int], dict]:
     """Chronological per-(account_id, asset_id) trade events with cycle-aware
-    running averages. A cycle ends when the running quantity returns to zero;
-    crossing zero seeds the new cycle with the crossing leg's pro-rata cost.
+    running averages, replayed per SLEEVE: each strategy group (and the
+    ungrouped trades, sleeve key None) holds its own sub-position with its own
+    cycles, so an ungrouped buy never covers a grouped short. A cycle ends when
+    the sleeve qty returns to zero; crossing zero seeds the new cycle with the
+    crossing leg's pro-rata cost.
 
-    Returns key -> {'events': [event, ...], 'state': accumulators of the open
-    cycle, 'cycle': index of the open cycle}. Prices are in the cash leg's
-    native units per 1 unit of asset (multipliers NOT removed)."""
+    Returns key -> {'events': [event, ...], 'qty': net position qty,
+    'sleeves': {group_id | None: {'state': accumulators of the open cycle,
+    'cycle': index of the open cycle}}}. Event 'cycle'/'avg_*' refer to the
+    event's own sleeve; 'current' marks events of the sleeve's open cycle.
+    Prices are in the cash leg's native units per 1 unit of asset (multipliers
+    NOT removed)."""
     hist: dict[tuple[int, int], dict] = {}
 
     for r in conn.execute(_TRADE_EVENTS_SQL, {"asof": normalize_asof(as_of)}):
         deltas, legs = txn_legs(r)
+        gid = r["group_id"]
         for key, delta in deltas.items():
-            h = hist.setdefault(key, {"events": [], "state": _fresh_cycle(), "cycle": 0})
+            h = hist.setdefault(key, {"events": [], "qty": 0.0, "sleeves": {}})
+            sl = h["sleeves"].setdefault(gid, {"state": _fresh_cycle(), "cycle": 0})
             leg = legs.get(key, {})
-            h["state"], outcome = cycle_step(h["state"], delta, leg)
-            closed = outcome == "closed"
+            sl["state"], outcome = cycle_step(sl["state"], delta, leg)
             if outcome == "crossed":
-                h["cycle"] += 1
-            snap = h["state"]
+                sl["cycle"] += 1
+            h["qty"] += delta
+            if abs(h["qty"]) <= _EPS:
+                h["qty"] = 0.0
+            snap = sl["state"]
             side = "buy" if "buy" in leg else ("sell" if "sell" in leg else None)
             cash, leg_qty = leg[side] if side else (None, None)
             h["events"].append({
                 "txn_id": r["txn_id"], "txn_date": r["txn_date"],
-                "delta": delta, "qty_after": snap["qty"],
-                "cycle": h["cycle"], "side": side,
+                "delta": delta, "qty_after": h["qty"], "sleeve_qty_after": snap["qty"],
+                "cycle": sl["cycle"], "side": side,
                 "cash": cash, "leg_qty": leg_qty,
                 "px": (cash / leg_qty) if side and leg_qty else None,
                 "avg_buy": (snap["bc"] / snap["bq"]) if snap["bq"] > _EPS else None,
                 "avg_sell": (snap["sc"] / snap["sq"]) if snap["sq"] > _EPS else None,
                 "fee_amount": r["fee_amt"] or 0.0, "fee_asset_id": r["fee_ast"],
-                "group_id": r["group_id"], "note": r["note"] or "",
+                "group_id": gid, "note": r["note"] or "",
             })
-            if closed:
-                h["state"] = _fresh_cycle()
-                h["cycle"] += 1
+            if outcome == "closed":
+                sl["state"] = _fresh_cycle()
+                sl["cycle"] += 1
+    for h in hist.values():
+        for e in h["events"]:
+            e["current"] = e["cycle"] == h["sleeves"][e["group_id"]]["cycle"]
     return hist
 
 
-def avg_trade_prices(conn: sqlite3.Connection,
-                     as_of: str | None = None) -> dict[tuple[int, int], dict]:
-    """(account_id, asset_id) -> {'buy': avg buy px, 'sell': avg sell px} in the
-    cash leg's native units per 1 unit of asset (contract multipliers not yet
-    removed; the caller divides by the multiplier for derivatives).
-
-    Averages cover only the CURRENT holding cycle: whenever the running
-    position returns to zero, the accumulators reset, so earlier round trips
-    stop influencing the buy/sell price shown today."""
-    out: dict[tuple[int, int], dict] = {}
-    for key, h in trade_history(conn, as_of).items():
-        s = h["state"]
-        d = {}
-        if s["bq"] > _EPS:
-            d["buy"] = s["bc"] / s["bq"]
-        if s["sq"] > _EPS:
-            d["sell"] = s["sc"] / s["sq"]
-        if d:
-            out[key] = d
-    return out
+def sleeve_entry_px(s: dict) -> float | None:
+    """Open-cycle entry price of a sleeve: avg buy when long, avg sell when short
+    (cash leg's native units per 1 unit of asset, multiplier NOT removed)."""
+    if s["qty"] >= 0:
+        return s["bc"] / s["bq"] if s["bq"] > _EPS else None
+    return s["sc"] / s["sq"] if s["sq"] > _EPS else None
 
 
-def holdings(conn: sqlite3.Connection, as_of: str | None = None) -> list[dict]:
-    """Raw quantities per (account, asset) as of a date/datetime (inclusive)."""
-    rows = conn.execute(HOLDINGS_SQL, {"asof": normalize_asof(as_of)}).fetchall()
+def holdings(conn: sqlite3.Connection, as_of: str | None = None,
+             hist: dict | None = None) -> list[dict]:
+    """Raw quantities per (account, asset) as of a date/datetime (inclusive).
+    With `hist` (trade_history of the same as_of), positions whose sleeves
+    offset to a zero net (e.g. grouped short + ungrouped long) come back too,
+    with quantity 0."""
+    qtys = [(r["account_id"], r["asset_id"], r["quantity"])
+            for r in conn.execute(HOLDINGS_SQL, {"asof": normalize_asof(as_of)})]
+    if hist:
+        seen = {(acc, aid) for acc, aid, _q in qtys}
+        qtys += [(acc, aid, 0.0) for (acc, aid), h in hist.items()
+                 if (acc, aid) not in seen
+                 and any(abs(sl["state"]["qty"]) > _EPS for sl in h["sleeves"].values())]
     out = []
-    for r in rows:
-        asset = conn.execute("SELECT * FROM assets WHERE id = ?", (r["asset_id"],)).fetchone()
+    for account_id, asset_id, qty in qtys:
+        asset = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
         account = conn.execute("SELECT * FROM accounts WHERE id = ?",
-                               (r["account_id"],)).fetchone()
+                               (account_id,)).fetchone()
         if asset is None or account is None:
             continue
+        if not qty and asset["asset_type"] in ("cash", "loan"):
+            continue
         deriv = conn.execute("SELECT * FROM derivative_details WHERE asset_id = ?",
-                             (r["asset_id"],)).fetchone()
+                             (asset_id,)).fetchone()
         out.append({
-            "account_id": r["account_id"], "asset_id": r["asset_id"],
-            "quantity": r["quantity"],
+            "account_id": account_id, "asset_id": asset_id,
+            "quantity": qty,
             "asset": dict(asset), "account": dict(account),
             "account_label": account_label(account),
             "derivative": dict(deriv) if deriv else None,
@@ -291,13 +302,19 @@ def price_native(conn: sqlite3.Connection, asset: dict,
 
 
 def enrich_holdings(conn: sqlite3.Connection, holds: list[dict],
-                    display_cur: str, as_of: str | None = None) -> list[dict]:
+                    display_cur: str, as_of: str | None = None,
+                    hist: dict | None = None) -> list[dict]:
     """Attach price, multiplier, fx and values (native/USD/display) to raw holdings.
     Assets denominated in the display currency convert identically: the native
-    value passes through untouched (no USD round-trip drift)."""
+    value passes through untouched (no USD round-trip drift).
+
+    Non-cash rows also get 'sleeves' (one per open group / ungrouped
+    sub-position, each with its own entry cost and P&L); the row's avg_cost and
+    earning combine them: sum of sleeve costs / net qty, sum of sleeve P&L."""
     usd2disp, disp_ok = fx.usd_to_display(conn, display_cur, as_of)
     disp_ccy = (display_cur or "USD").upper()
-    costs = avg_trade_prices(conn, as_of)
+    if hist is None:
+        hist = trade_history(conn, as_of)
     # today's non-cash asset flows per (account, asset): traded qty + net cash
     # spent, so day earn on positions traded today measures from the trade price
     day_flows: dict[tuple[int, int], dict] = {}
@@ -328,32 +345,52 @@ def enrich_holdings(conn: sqlite3.Connection, holds: list[dict],
         rate, fx_ok = fx.rate_to_usd(conn, asset["currency"], as_of)
         value_native = (h["quantity"] * price * mult) if price is not None else None
         value_usd = value_native * rate if value_native is not None else None
-        if (asset["currency"] or "").upper() == disp_ccy:
-            value_display = value_native
-        else:
-            value_display = value_usd * usd2disp if value_usd is not None else None
-        trade = costs.get((h["account_id"], h["asset_id"]), {})
-        avg_px = trade.get("buy") if h["quantity"] >= 0 else trade.get("sell")
-        if asset["asset_type"] in ("cash", "loan") or avg_px is None:
-            avg_cost = None
-        else:
-            avg_cost = avg_px / mult if mult else avg_px
-        # unrealized: current native value minus what the position cost
-        if avg_cost is None or value_native is None:
-            earning = None
-            earning_display = None
-        else:
-            earning = value_native - avg_cost * h["quantity"] * mult
-            if (asset["currency"] or "").upper() == disp_ccy:
-                earning_display = earning
-            else:
-                earning_display = earning * rate * usd2disp
+        same_ccy = (asset["currency"] or "").upper() == disp_ccy
+
+        def to_disp(native):
+            if native is None:
+                return None
+            return native if same_ccy else native * rate * usd2disp
+
+        value_display = value_native if same_ccy else (
+            value_usd * usd2disp if value_usd is not None else None)
+        sleeves: list[dict] = []
+        cost_native = None
+        if asset["asset_type"] not in ("cash", "loan"):
+            pos = hist.get((h["account_id"], h["asset_id"]))
+            cost_native = 0.0
+            for gid, sl in sorted((pos or {}).get("sleeves", {}).items(),
+                                  key=lambda kv: (kv[0] is not None, kv[0] or 0)):
+                s = sl["state"]
+                if abs(s["qty"]) <= _EPS:
+                    continue
+                raw = sleeve_entry_px(s)
+                s_cost = raw * s["qty"] if raw is not None else None
+                s_value = s["qty"] * price * mult if price is not None else None
+                s_earn = s_value - s_cost \
+                    if s_value is not None and s_cost is not None else None
+                cost_native = cost_native + s_cost \
+                    if cost_native is not None and s_cost is not None else None
+                sleeves.append({
+                    "group_id": gid, "qty": s["qty"],
+                    "avg_cost": (raw / mult if mult else raw) if raw is not None else None,
+                    "value_native": s_value, "value_display": to_disp(s_value),
+                    "earning": s_earn, "earning_display": to_disp(s_earn),
+                })
+            if not sleeves:
+                cost_native = None
+        q_units = h["quantity"] * mult
+        avg_cost = cost_native / q_units \
+            if cost_native is not None and abs(q_units) > _EPS else None
+        # unrealized: current native value minus what the open sleeves cost
+        earning = value_native - cost_native \
+            if cost_native is not None and value_native is not None else None
         h.update({
             "price_native": price, "price_source": source, "multiplier": mult,
             "fx_to_usd": rate, "fx_ok": fx_ok and disp_ok,
             "value_native": value_native, "value_usd": value_usd,
             "value_display": value_display, "avg_cost": avg_cost, "earning": earning,
-            "earning_display": earning_display,
+            "earning_display": to_disp(earning), "sleeves": sleeves,
         })
         if as_of is None and asset["is_yahoo_tracked"]:
             lq = conn.execute("SELECT prev_close FROM latest_quotes WHERE asset_id = ?",
@@ -414,8 +451,6 @@ def group_positions(conn: sqlite3.Connection,
     events_by_gid: dict[int, list] = {}
     for r in conn.execute(GROUP_EVENTS_SQL):
         events_by_gid.setdefault(r["group_id"], []).append(r)
-    real_qty = {(r["account_id"], r["asset_id"]): r["quantity"]
-                for r in conn.execute(HOLDINGS_SQL, {"asof": normalize_asof(None)})}
     usd2disp, disp_ok = fx.usd_to_display(conn, display_cur)
     disp_ccy = (display_cur or "USD").upper()
 
@@ -477,8 +512,7 @@ def group_positions(conn: sqlite3.Connection,
             if abs(qty) <= _EPS:
                 continue  # fully closed leg: realized result lives in cash
             # entry px per unit, multiplier removed (same convention as avg_cost)
-            raw = (s["bc"] / s["bq"]) if qty >= 0 and s["bq"] > _EPS else \
-                  ((s["sc"] / s["sq"]) if qty < 0 and s["sq"] > _EPS else None)
+            raw = sleeve_entry_px(s)
             entry_px = (raw / mult if mult else raw) if raw is not None else None
             cost_native = entry_px * qty * mult if entry_px is not None else None
             earn_native = value_native - cost_native \
@@ -488,14 +522,10 @@ def group_positions(conn: sqlite3.Connection,
             entry_cost_disp += cost_disp or 0.0
             open_disp += value_disp or 0.0
             unreal_disp += earn_disp or 0.0
-            pos_qty = real_qty.get((acc, aid), 0.0)
             leg_rows.append({
                 "asset_id": aid, "account_id": acc, "ticker": asset["ticker"],
                 "asset_type": atype, "currency": asset["currency"],
                 "qty": qty, "multiplier": mult,
-                "position_qty": pos_qty,
-                # group holds more than (or the opposite side of) the account position
-                "qty_mismatch": qty * pos_qty < 0 or abs(qty) > abs(pos_qty) + _EPS,
                 "entry_px": entry_px, "price_native": price, "price_source": src,
                 "value_native": value_native, "value_display": value_disp,
                 "entry_cost_display": cost_disp,
@@ -538,7 +568,8 @@ def group_positions(conn: sqlite3.Connection,
 
 def summary(conn: sqlite3.Connection, display_cur: str) -> dict:
     """Everything the home dashboard needs, in the display currency."""
-    holds = enrich_holdings(conn, holdings(conn), display_cur)
+    hist = trade_history(conn)
+    holds = enrich_holdings(conn, holdings(conn, hist=hist), display_cur, hist=hist)
     usd2disp, _ = fx.usd_to_display(conn, display_cur)
 
     categories = {t: 0.0 for t in ("cash", "equity", "etf", "bond", "option", "future",
@@ -552,6 +583,8 @@ def summary(conn: sqlite3.Connection, display_cur: str) -> dict:
     exposure = 0.0
 
     for h in holds:
+        if not h["quantity"]:
+            continue  # offsetting sleeves only: no net value or exposure
         v = h["value_display"]
         if v is None:
             fx_warnings.add(h["asset"]["ticker"] + ":no-price")
@@ -656,6 +689,7 @@ def _flatten_holding(h: dict) -> dict:
         "day_change_native": h["day_change_native"],
         "day_change_display": h["day_change_display"],
         "derivative": h["derivative"],
+        "sleeves": h["sleeves"],
     }
 
 

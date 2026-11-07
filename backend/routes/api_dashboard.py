@@ -117,8 +117,9 @@ def summary():
 @bp.get("/position-trades")
 def position_trades():
     """Trade-by-trade history behind one holding: every qty-affecting txn with
-    side, unit price, fees and cycle-aware running averages. Prices and
-    averages are per unit (contract multiplier removed, like BUY PRICE)."""
+    side, unit price, fees and cycle-aware running averages of its sleeve (its
+    strategy group, or the ungrouped trades), plus one summary per sleeve.
+    Prices and averages are per unit (contract multiplier removed, like BUY PRICE)."""
     try:
         asset_id = int(request.args["asset_id"])
         account_id = int(request.args["account_id"])
@@ -145,7 +146,9 @@ def position_trades():
             trades.append({
                 "txn_id": e["txn_id"], "txn_date": e["txn_date"],
                 "side": e["side"], "delta": e["delta"], "qty_after": e["qty_after"],
-                "cycle": e["cycle"], "px": per_unit(e["px"]), "cash": e["cash"],
+                "sleeve_qty_after": e["sleeve_qty_after"],
+                "cycle": e["cycle"], "current": e["current"],
+                "px": per_unit(e["px"]), "cash": e["cash"],
                 "avg_buy": per_unit(e["avg_buy"]), "avg_sell": per_unit(e["avg_sell"]),
                 "fee_amount": e["fee_amount"],
                 "fee_ticker": tickers.get(e["fee_asset_id"]),
@@ -153,20 +156,29 @@ def position_trades():
                 "group_name": group_names.get(e["group_id"]),
                 "note": e["note"],
             })
-        s = hist["state"] if hist else None
-        avg_buy = s["bc"] / s["bq"] if s and s["bq"] > 1e-9 else None
-        avg_sell = s["sc"] / s["sq"] if s and s["sq"] > 1e-9 else None
-        realized = None
-        if avg_buy is not None and avg_sell is not None:
-            realized = (avg_sell - avg_buy) * min(s["bq"], s["sq"])
+        sleeves = []
+        for gid, sl in sorted((hist["sleeves"] if hist else {}).items(),
+                              key=lambda kv: (kv[0] is not None, kv[0] or 0)):
+            s = sl["state"]
+            avg_buy = s["bc"] / s["bq"] if s["bq"] > 1e-9 else None
+            avg_sell = s["sc"] / s["sq"] if s["sq"] > 1e-9 else None
+            if abs(s["qty"]) <= 1e-9 and avg_buy is None and avg_sell is None:
+                continue
+            realized = None
+            if avg_buy is not None and avg_sell is not None:
+                realized = (avg_sell - avg_buy) * min(s["bq"], s["sq"])
+            sleeves.append({
+                "group_id": gid, "group_name": group_names.get(gid),
+                "qty": s["qty"], "cycle": sl["cycle"],
+                "avg_buy": per_unit(avg_buy), "avg_sell": per_unit(avg_sell),
+                "realized": realized,
+            })
         return jsonify({
             "asset_id": asset_id, "account_id": account_id,
             "ticker": asset["ticker"], "currency": asset["currency"],
             "multiplier": mult,
-            "open_qty": s["qty"] if s else 0.0,
-            "current_cycle": hist["cycle"] if hist else 0,
-            "avg_buy": per_unit(avg_buy), "avg_sell": per_unit(avg_sell),
-            "realized": realized,
+            "open_qty": hist["qty"] if hist else 0.0,
+            "sleeves": sleeves,
             "trades": trades,
         })
 

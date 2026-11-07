@@ -367,7 +367,6 @@ def test_group_entry_resets_after_closed_round_trip(client, sample_portfolio):
     leg = _group_leg(client, gid, "SK")
     assert leg["qty"] == pytest.approx(-10)
     assert leg["entry_px"] == pytest.approx(200)
-    assert leg["qty_mismatch"] is False
 
     s = client.get("/api/txn-groups/summary?ccy=USD").get_json()
     a = next(x for x in next(g for g in s["groups"] if g["id"] == gid)["assets"]
@@ -387,35 +386,64 @@ def test_group_entry_crossing_zero_uses_crossing_trade(client, sample_portfolio)
     assert leg["entry_px"] == pytest.approx(200)
 
 
-def test_group_leg_mismatch_and_fix_candidates(client, sample_portfolio):
-    """Group holds the short sells but not the untagged cover -> phantom leg."""
+def test_ungrouped_buy_does_not_cover_grouped_short(client, sample_portfolio):
+    """Short 270 SK in a pair group, then buy 270 ungrouped: the account nets to
+    zero but both sleeves stay open at their own entry prices."""
     acc, usd = sample_portfolio["account_id"], sample_portfolio["usd"]
     sk = _add_asset("SK", 190.0)
-    s1 = _trade(client, acc, "2024-01-05 10:00:00", sk, 20, usd, 3400)
-    other = _trade(client, acc, "2024-01-05 12:00:00", sk, 5, usd, 850)  # untagged, before last
-    s2 = _trade(client, acc, "2024-01-06 10:00:00", sk, 10, usd, 1600)
-    cover = _trade(client, acc, "2024-01-08 10:00:00", usd, 4000, sk, 30)
-    gid = client.post("/api/txn-groups", json={"name": "SKHY"}).get_json()["id"]
-    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": [s1, s2]})
+    short = _trade(client, acc, "2024-01-05 10:00:00", sk, 270, usd, 270 * 200)
+    buy = _trade(client, acc, "2024-01-08 10:00:00", usd, 270 * 180, sk, 270)
+    gid = client.post("/api/txn-groups", json={"name": "SK PAIR", "group_type": "pair"}
+                      ).get_json()["id"]
+    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": [short]})
+
+    data = client.get("/api/dashboard/summary?ccy=USD").get_json()
+    hold = next(h for h in data["holdings"] if h["ticker"] == "SK")
+    assert hold["quantity"] == 0 and hold["value_display"] == pytest.approx(0)
+    assert hold["avg_cost"] is None
+    sl = {s["group_id"]: s for s in hold["sleeves"]}
+    assert sl[gid]["qty"] == pytest.approx(-270) and sl[gid]["avg_cost"] == pytest.approx(200)
+    assert sl[gid]["earning"] == pytest.approx(270 * (200 - 190))
+    assert sl[None]["qty"] == pytest.approx(270) and sl[None]["avg_cost"] == pytest.approx(180)
+    assert sl[None]["earning"] == pytest.approx(270 * (190 - 180))
+    assert hold["earning"] == pytest.approx(270 * 10 + 270 * 10)
+    assert [g["id"] for g in hold["groups"]] == [gid]
 
     leg = _group_leg(client, gid, "SK")
-    assert leg["qty"] == pytest.approx(-30)
-    assert leg["position_qty"] == pytest.approx(-5)
-    assert leg["qty_mismatch"] is True
+    assert leg["qty"] == pytest.approx(-270) and leg["entry_px"] == pytest.approx(200)
+    assert "qty_mismatch" not in leg
 
-    res = client.get(f"/api/txn-groups/{gid}/leg-candidates"
-                     f"?account_id={acc}&asset_id={sk}").get_json()
-    assert res["group_qty"] == pytest.approx(-30)
-    assert res["position_qty"] == pytest.approx(-5)
-    by_id = {c["txn_id"]: c for c in res["candidates"]}
-    assert set(by_id) == {other, cover}
-    assert by_id[cover]["suggested"] and not by_id[other]["suggested"]
-    assert by_id[cover]["px"] == pytest.approx(4000 / 30)
-    assert res["group_qty_after"] == pytest.approx(0)
+    pt = client.get(f"/api/dashboard/position-trades?asset_id={sk}&account_id={acc}").get_json()
+    assert pt["open_qty"] == pytest.approx(0)
+    by = {s["group_id"]: s for s in pt["sleeves"]}
+    assert by[gid]["group_name"] == "SK PAIR" and by[gid]["avg_sell"] == pytest.approx(200)
+    assert by[None]["qty"] == pytest.approx(270) and by[None]["avg_buy"] == pytest.approx(180)
+    assert [t["current"] for t in pt["trades"]] == [True, True]
 
-    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": [cover]})
-    assert _group_leg(client, gid, "SK") is None  # leg closed, P&L realized in cash
+    # grouping the net-zero position picks up the ungrouped buy only
+    res = client.post("/api/txn-groups/from-positions", json={
+        "name": "SK LONG", "positions": [{"asset_id": sk, "account_id": acc}]})
+    body = res.get_json()
+    assert body["assigned"] == 1 and body["no_open_position"] == []
+    assert body["skipped"] == [{"txn_id": short, "group_id": gid, "group_name": "SK PAIR"}]
+    members = client.get(f"/api/transactions?group_id={body['id']}").get_json()
+    assert [t["id"] for t in members] == [buy]
 
-    assert client.get(f"/api/txn-groups/{gid}/leg-candidates?account_id={acc}").status_code == 400
-    assert client.get(f"/api/txn-groups/99999/leg-candidates"
-                      f"?account_id={acc}&asset_id={sk}").status_code == 404
+
+def test_partial_offset_combines_sleeve_costs(client, sample_portfolio):
+    """Grouped short 270 @200 + ungrouped buy 300 @185, now 190: net +30 whose
+    cost and P&L are the sum of both sleeves (no realized cover)."""
+    acc, usd = sample_portfolio["account_id"], sample_portfolio["usd"]
+    sk = _add_asset("SK", 190.0)
+    short = _trade(client, acc, "2024-01-05 10:00:00", sk, 270, usd, 270 * 200)
+    _trade(client, acc, "2024-01-08 10:00:00", usd, 300 * 185, sk, 300)
+    gid = client.post("/api/txn-groups", json={"name": "SKG"}).get_json()["id"]
+    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": [short]})
+
+    data = client.get("/api/dashboard/summary?ccy=USD").get_json()
+    hold = next(h for h in data["holdings"] if h["ticker"] == "SK")
+    assert hold["quantity"] == pytest.approx(30)
+    assert hold["avg_cost"] == pytest.approx((300 * 185 - 270 * 200) / 30)
+    assert hold["earning"] == pytest.approx(300 * (190 - 185) + 270 * (200 - 190))
+    sl = {s["group_id"]: s for s in hold["sleeves"]}
+    assert sl[None]["qty"] == pytest.approx(300) and sl[None]["avg_cost"] == pytest.approx(185)

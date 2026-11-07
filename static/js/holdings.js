@@ -214,11 +214,7 @@ function holdingCellHtml(h, key) {
     const k = posKey(h);
     v = (h._multi ? ""
         : `<button class="exp-btn" data-exp="${k}" title="show the buy/sell trades behind this position">${expandedPositions.has(k) ? "\u25be" : "\u25b8"}</button>`) +
-        tickerWithYahooHtml(v, isYahooTickerEligible(v)) + groupBadgesHtml(h) +
-        (h._mismatch
-          ? ` <span class="tag warn" title="group QTY ${fmtQty(h.quantity)} vs account QTY ${fmtQty(h._posQty)} \u2014 a trade on this position is probably not tagged to the group">MISMATCH</span>` +
-            ` <button class="mini" data-fix-gid="${h._gid}" data-fix-acc="${h.account_id}" data-fix-aid="${h.asset_id}" title="add the missing ungrouped trades to this group">FIX</button>`
-          : "");
+        tickerWithYahooHtml(v, isYahooTickerEligible(v)) + groupBadgesHtml(h);
   }
   else v = esc(v);
   return `<td class="${cls}">${v}</td>`;
@@ -238,7 +234,7 @@ function holdingRowHtml(h, cols, leading, extraCls = "") {
 }
 
 /* a group leg shown as a holdings-style row: group-scoped qty/cost/P&L */
-function legHolding(leg, gid) {
+function legHolding(leg) {
   const base = holdingsData.find(h => h.asset_id === leg.asset_id &&
                                       h.account_id === leg.account_id) || {};
   return {
@@ -249,22 +245,26 @@ function legHolding(leg, gid) {
     value_native: leg.value_native, value_display: leg.value_display, value_usd: null,
     earning: leg.earning, earning_display: leg.earning_display,
     groups: [],  // legs sit under their group header: no badges
-    _gid: gid, _mismatch: !!leg.qty_mismatch, _posQty: leg.position_qty,
   };
 }
 
-/* subtract grouped legs from a holding; null when nothing is left over */
-function remainderHolding(h, legs, dropGids) {
-  const grouped = legs.reduce((s, l) => s + l.qty, 0);
-  const rem = h.quantity - grouped;
-  if (Math.abs(rem) <= 1e-9) return null;
-  const minus = (a, b) => (a == null || b == null ? null : a - b);
-  const r = { ...h, quantity: rem, value_usd: null };
-  for (const f of ["value_native", "value_display", "earning", "earning_display"]) {
-    r[f] = legs.reduce((v, l) => minus(v, l[f]), h[f]);
-  }
-  if (dropGids) r.groups = (h.groups || []).filter(g => !dropGids.has(g.id));
-  return r;
+/* the holding's sleeves outside the groups shown as their own rows (own
+   qty, cost and P&L); null when none of them is open */
+function remainderHolding(h, dropGids) {
+  const keep = (h.sleeves || []).filter(s => !dropGids.has(s.group_id));
+  if (!keep.length) return null;
+  const add = f => keep.reduce((v, s) => (v == null || s[f] == null ? null : v + s[f]), 0);
+  const qty = keep.reduce((v, s) => v + s.qty, 0);
+  const cost = keep.reduce((v, s) => (v == null || s.avg_cost == null ? null : v + s.avg_cost * s.qty), 0);
+  const flat = Math.abs(qty) <= 1e-9;
+  return {
+    ...h, quantity: flat ? 0 : qty, value_usd: null,
+    value_native: add("value_native"), value_display: add("value_display"),
+    earning: add("earning"), earning_display: add("earning_display"),
+    avg_cost: cost == null || flat ? null : cost / qty,
+    sleeves: keep,
+    groups: (h.groups || []).filter(g => !dropGids.has(g.id)),
+  };
 }
 
 /* posKey -> legs across all strategy groups (for remainder math) */
@@ -310,12 +310,12 @@ function renderStrategyMode(rows, cols, collapsed) {
   for (const g of gs) {
     html += strategyHeaderHtml(g, cols, collapsed, false);
     if (collapsed.has("g" + g.id)) continue;
-    html += (g.legs || []).map(l => holdingRowHtml(legHolding(l, g.id), cols, true, " leg-row")).join("");
+    html += (g.legs || []).map(l => holdingRowHtml(legHolding(l), cols, true, " leg-row")).join("");
   }
   const rem = [];
   for (const h of rows) {
     const legs = legMap.get(posKey(h));
-    const rh = legs ? remainderHolding(h, legs, new Set(legs.map(l => l._gid))) : h;
+    const rh = legs ? remainderHolding(h, new Set(legs.map(l => l._gid))) : h;
     if (rh) rem.push(rh);
   }
   if (rem.length) {
@@ -362,13 +362,13 @@ function renderAccountMode(rows, cols, collapsed) {
     for (const ng of nested) {
       html += strategyHeaderHtml(ng, cols, collapsed, true);
       if (collapsed.has("g" + ng.id)) continue;
-      html += (ng.legs || []).map(l => holdingRowHtml(legHolding(l, ng.id), cols, true, " leg-row nested")).join("");
+      html += (ng.legs || []).map(l => holdingRowHtml(legHolding(l), cols, true, " leg-row nested")).join("");
     }
     const rest = [];
     for (const h of g.items) {
-      const legs = nested.flatMap(ng => (ng.legs || []).filter(l =>
+      const nestedLeg = nested.some(ng => (ng.legs || []).some(l =>
         l.asset_id === h.asset_id && l.account_id === h.account_id));
-      const rh = legs.length ? remainderHolding(h, legs, nestedGids) : h;
+      const rh = nestedLeg ? remainderHolding(h, nestedGids) : h;
       if (rh) rest.push(rh);
     }
     html += sortRows(rest).map(h => holdingRowHtml(h, cols, true)).join("");
@@ -440,10 +440,6 @@ function bindHoldingsRowEvents(tbody) {
     e.stopPropagation();
     showGroupDrawer(+b.dataset.gd);
   }));
-  tbody.querySelectorAll("button[data-fix-gid]").forEach(b => b.addEventListener("click", e => {
-    e.stopPropagation();
-    fixLegMismatch(+b.dataset.fixGid, +b.dataset.fixAcc, +b.dataset.fixAid);
-  }));
   tbody.querySelectorAll("tr.grp-row td.grp-label").forEach(td => {
     td.addEventListener("click", async e => {
       if (e.target.closest("button")) return;
@@ -460,8 +456,8 @@ function bindHoldingsRowEvents(tbody) {
 }
 
 /* ------------------------------------------- position trade drill-down --- */
-function tradeRowHtml(t, data) {
-  const cur = t.cycle === data.current_cycle;
+function tradeRowHtml(t) {
+  const cur = t.current;
   const side = t.side
     ? `<span class="${t.side === "buy" ? "green" : "red"}">${t.side.toUpperCase()}</span>`
     : `<span class="dim">XFER</span>`;
@@ -497,15 +493,19 @@ async function fillPosDetail(tr, key) {
   }
   if (!document.body.contains(box)) return;  // table re-rendered meanwhile
   const showAll = allCyclesShown.has(key);
-  const trades = showAll ? data.trades
-    : data.trades.filter(t => t.cycle === data.current_cycle);
+  const trades = showAll ? data.trades : data.trades.filter(t => t.current);
   const hidden = data.trades.length - trades.length;
+  const labelled = data.sleeves.some(s => s.group_id != null);
+  const sleeveBits = data.sleeves.map(s => [
+    labelled ? `<span class="amber">${esc(s.group_name || "UNGROUPED")}</span> ${fmtQty(s.qty)}` : "",
+    s.avg_buy != null ? `AVG BUY ${fmt(s.avg_buy)}` : "",
+    s.avg_sell != null ? `AVG SELL ${fmt(s.avg_sell)}` : "",
+    s.realized != null
+      ? `REALIZED (CYCLE) <span class="${valClass(s.realized)}">${fmt(s.realized)}</span> ${esc(data.currency)}` : "",
+  ].filter(Boolean).join(" \u00b7 "));
   const sum = [
     `OPEN ${fmtQty(data.open_qty)}`,
-    data.avg_buy != null ? `AVG BUY ${fmt(data.avg_buy)}` : "",
-    data.avg_sell != null ? `AVG SELL ${fmt(data.avg_sell)}` : "",
-    data.realized != null
-      ? `REALIZED (CYCLE) <span class="${valClass(data.realized)}">${fmt(data.realized)}</span> ${esc(data.currency)}` : "",
+    sleeveBits.filter(Boolean).join(" | "),
     data.multiplier !== 1 ? `MULT \u00d7${data.multiplier}` : "",
   ].filter(Boolean).join(" \u00b7 ");
   box.classList.remove("dim");
@@ -520,7 +520,7 @@ async function fillPosDetail(tr, key) {
       <th>DATE / TIME</th><th>SIDE</th><th>QTY \u0394</th><th>PRICE</th><th>FEE</th><th>CASH</th>
       <th>QTY AFTER</th><th>AVG BUY</th><th>AVG SELL</th><th>GROUP</th><th>NOTE</th><th></th>
     </tr></thead><tbody>${trades.length
-      ? trades.map(t => tradeRowHtml(t, data)).join("")
+      ? trades.map(t => tradeRowHtml(t)).join("")
       : `<tr><td colspan="12" class="dim">no transactions</td></tr>`}
     </tbody></table>`;
   const cyBtn = box.querySelector("button[data-cycles]");
@@ -543,32 +543,6 @@ async function fillPosDetail(tr, key) {
 }
 
 /* --------------------------------------------------- strategy groups ----- */
-async function fixLegMismatch(gid, accountId, assetId) {
-  const res = await api(`/api/txn-groups/${gid}/leg-candidates?account_id=${accountId}&asset_id=${assetId}`);
-  const pick = res.candidates.filter(c => c.suggested);
-  if (!pick.length) {
-    toast(`no ungrouped trades bring the group QTY ${fmtQty(res.group_qty)} within the account QTY ` +
-          `${fmtQty(res.position_qty)} \u2014 tag them on the Transactions page`, "error");
-    return;
-  }
-  const rows = pick.map(c => `<tr><td class="nowrap">${formatDisplayDateTime(c.txn_date)}</td>
-    <td>${esc((c.side || "xfer").toUpperCase())}</td><td class="num">${fmtQty(c.delta)}</td>
-    <td class="num">${c.px != null ? fmt(c.px) : "\u2014"}</td><td>${esc(c.note)}</td></tr>`).join("");
-  openModal("FIX GROUP LEG", `<div>Add ${pick.length} ungrouped trade${pick.length > 1 ? "s" : ""} to the group?
-    Group QTY ${fmtQty(res.group_qty)} \u2192 ${fmtQty(res.group_qty_after)} (account QTY ${fmtQty(res.position_qty)}).</div>
-    <table class="tbl"><thead><tr><th>DATE / TIME</th><th>SIDE</th><th>QTY \u0394</th><th>PRICE</th><th>NOTE</th></tr></thead>
-    <tbody>${rows}</tbody></table>`,
-    `<button id="fx-no">CANCEL</button><button id="fx-yes" class="primary">ADD TO GROUP</button>`);
-  document.getElementById("fx-no").onclick = closeModal;
-  document.getElementById("fx-yes").onclick = async () => {
-    closeModal();
-    await api(`/api/txn-groups/${gid}/assign`, { method: "POST",
-      body: { txn_ids: pick.map(c => c.txn_id) } });
-    toast(`${pick.length} trade${pick.length > 1 ? "s" : ""} added to the group`, "ok");
-    await reloadHoldings();
-  };
-}
-
 async function showGroupDrawer(gid) {
   const g = groupsData.find(x => x.id === gid);
   if (!g) {
