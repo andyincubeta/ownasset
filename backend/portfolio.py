@@ -54,7 +54,7 @@ def normalize_asof(as_of: str | None) -> str:
 
 # every qty-affecting leg per transaction, in ledger order, with the asset
 # types of both trade sides so cash-settled buy/sell legs can be recognized
-_TRADE_EVENTS_SQL = """
+_TRADE_EVENTS_SELECT = """
 SELECT t.id AS txn_id, t.txn_date, t.note, t.group_id,
        t.inflow_account_id AS in_acc, t.inflow_asset_id AS in_ast,
        t.inflow_amount AS in_amt,
@@ -65,15 +65,81 @@ SELECT t.id AS txn_id, t.txn_date, t.note, t.group_id,
   FROM transactions t
   LEFT JOIN assets ci ON ci.id = t.inflow_asset_id
   LEFT JOIN assets co ON co.id = t.outflow_asset_id
- WHERE t.txn_date <= :asof
- ORDER BY t.txn_date, t.id
 """
+_TRADE_EVENTS_SQL = _TRADE_EVENTS_SELECT + " WHERE t.txn_date <= :asof ORDER BY t.txn_date, t.id"
+GROUP_EVENTS_SQL = _TRADE_EVENTS_SELECT + \
+    " WHERE t.group_id IS NOT NULL ORDER BY t.txn_date, t.id"
 
 _EPS = 1e-9
 
 
 def _fresh_cycle() -> dict:
     return {"qty": 0.0, "bc": 0.0, "bq": 0.0, "sc": 0.0, "sq": 0.0}
+
+
+def txn_legs(r) -> tuple[dict[tuple[int, int], float], dict[tuple[int, int], dict]]:
+    """(qty delta per (account, asset), {key: {'buy'|'sell': (cash, qty)}}) of one
+    trade-events row."""
+    deltas: dict[tuple[int, int], float] = {}
+    legs: dict[tuple[int, int], dict] = {}
+    if r["in_acc"] is not None and r["in_ast"] is not None:
+        key = (r["in_acc"], r["in_ast"])
+        deltas[key] = deltas.get(key, 0.0) + (r["in_amt"] or 0.0)
+        if (r["in_amt"] or 0) > 0 and (r["out_amt"] or 0) > 0 and r["out_type"] == "cash":
+            legs.setdefault(key, {})["buy"] = (r["out_amt"], r["in_amt"])
+    if r["out_acc"] is not None and r["out_ast"] is not None:
+        key = (r["out_acc"], r["out_ast"])
+        deltas[key] = deltas.get(key, 0.0) - (r["out_amt"] or 0.0)
+        if (r["out_amt"] or 0) > 0 and (r["in_amt"] or 0) > 0 and r["in_type"] == "cash":
+            legs.setdefault(key, {})["sell"] = (r["in_amt"], r["out_amt"])
+    if r["fee_acc"] is not None and r["fee_ast"] is not None:
+        key = (r["fee_acc"], r["fee_ast"])
+        deltas[key] = deltas.get(key, 0.0) - (r["fee_amt"] or 0.0)
+    return deltas, legs
+
+
+def cycle_step(s: dict, delta: float, leg: dict) -> tuple[dict, str]:
+    """Apply one qty delta (+ its buy/sell cash leg) to an open cycle.
+    Returns (state, 'open' | 'closed' | 'crossed'). A closed state keeps its
+    accumulators (qty 0) so callers can still read the cycle averages; start
+    the next trade from _fresh_cycle(). Crossing zero seeds a new cycle with
+    the crossing leg's pro-rata cost."""
+    if "buy" in leg:
+        s["bc"] += leg["buy"][0]
+        s["bq"] += leg["buy"][1]
+    if "sell" in leg:
+        s["sc"] += leg["sell"][0]
+        s["sq"] += leg["sell"][1]
+    old, new = s["qty"], s["qty"] + delta
+    if abs(new) <= _EPS:
+        s["qty"] = 0.0
+        return s, "closed"
+    if old and (old > 0) != (new > 0):
+        s2 = _fresh_cycle()
+        s2["qty"] = new
+        side = "sell" if new < 0 else "buy"
+        if side in leg and leg[side][1]:
+            cash, qty_leg = leg[side]
+            frac = min(abs(new) / qty_leg, 1.0)
+            s2["sc" if side == "sell" else "bc"] = cash * frac
+            s2["sq" if side == "sell" else "bq"] = abs(new)
+        return s2, "crossed"
+    s["qty"] = new
+    return s, "open"
+
+
+def open_cycle_states(rows) -> dict[tuple[int, int], dict]:
+    """(account, asset) -> accumulators of the open cycle after replaying the
+    trade-events rows (closed positions come back as a fresh zero state)."""
+    states: dict[tuple[int, int], dict] = {}
+    for r in rows:
+        deltas, legs = txn_legs(r)
+        for key, delta in deltas.items():
+            if not delta and key not in states:
+                continue  # zero fee on an untouched asset
+            s, outcome = cycle_step(states.get(key) or _fresh_cycle(), delta, legs.get(key, {}))
+            states[key] = _fresh_cycle() if outcome == "closed" else s
+    return states
 
 
 def trade_history(conn: sqlite3.Connection,
@@ -88,57 +154,20 @@ def trade_history(conn: sqlite3.Connection,
     hist: dict[tuple[int, int], dict] = {}
 
     for r in conn.execute(_TRADE_EVENTS_SQL, {"asof": normalize_asof(as_of)}):
-        deltas: dict[tuple[int, int], float] = {}
-        legs: dict[tuple[int, int], dict] = {}
-        if r["in_acc"] is not None and r["in_ast"] is not None:
-            key = (r["in_acc"], r["in_ast"])
-            deltas[key] = deltas.get(key, 0.0) + (r["in_amt"] or 0.0)
-            if (r["in_amt"] or 0) > 0 and (r["out_amt"] or 0) > 0 \
-                    and r["out_type"] == "cash":
-                legs.setdefault(key, {})["buy"] = (r["out_amt"], r["in_amt"])
-        if r["out_acc"] is not None and r["out_ast"] is not None:
-            key = (r["out_acc"], r["out_ast"])
-            deltas[key] = deltas.get(key, 0.0) - (r["out_amt"] or 0.0)
-            if (r["out_amt"] or 0) > 0 and (r["in_amt"] or 0) > 0 \
-                    and r["in_type"] == "cash":
-                legs.setdefault(key, {})["sell"] = (r["in_amt"], r["out_amt"])
-        if r["fee_acc"] is not None and r["fee_ast"] is not None:
-            key = (r["fee_acc"], r["fee_ast"])
-            deltas[key] = deltas.get(key, 0.0) - (r["fee_amt"] or 0.0)
-
+        deltas, legs = txn_legs(r)
         for key, delta in deltas.items():
             h = hist.setdefault(key, {"events": [], "state": _fresh_cycle(), "cycle": 0})
-            s = h["state"]
             leg = legs.get(key, {})
-            if "buy" in leg:
-                s["bc"] += leg["buy"][0]
-                s["bq"] += leg["buy"][1]
-            if "sell" in leg:
-                s["sc"] += leg["sell"][0]
-                s["sq"] += leg["sell"][1]
-            old, new = s["qty"], s["qty"] + delta
-            closed = abs(new) <= _EPS
-            if closed:                            # position closed: cycle over
-                s["qty"] = 0.0  # keep accumulators so the closing event shows cycle avgs
-            elif old and (old > 0) != (new > 0):  # crossed zero: seed new cycle
-                s2 = _fresh_cycle()
-                s2["qty"] = new
-                side = "sell" if new < 0 else "buy"
-                if side in leg and leg[side][1]:
-                    cash, qty_leg = leg[side]
-                    frac = min(abs(new) / qty_leg, 1.0)
-                    s2["sc" if side == "sell" else "bc"] = cash * frac
-                    s2["sq" if side == "sell" else "bq"] = abs(new)
+            h["state"], outcome = cycle_step(h["state"], delta, leg)
+            closed = outcome == "closed"
+            if outcome == "crossed":
                 h["cycle"] += 1
-                h["state"] = s2
-            else:
-                s["qty"] = new
             snap = h["state"]
             side = "buy" if "buy" in leg else ("sell" if "sell" in leg else None)
             cash, leg_qty = leg[side] if side else (None, None)
             h["events"].append({
                 "txn_id": r["txn_id"], "txn_date": r["txn_date"],
-                "delta": delta, "qty_after": 0.0 if closed else new,
+                "delta": delta, "qty_after": snap["qty"],
                 "cycle": h["cycle"], "side": side,
                 "cash": cash, "leg_qty": leg_qty,
                 "px": (cash / leg_qty) if side and leg_qty else None,
@@ -382,6 +411,11 @@ def group_positions(conn: sqlite3.Connection,
     by_gid: dict[int, list] = {}
     for t in txns:
         by_gid.setdefault(t["group_id"], []).append(t)
+    events_by_gid: dict[int, list] = {}
+    for r in conn.execute(GROUP_EVENTS_SQL):
+        events_by_gid.setdefault(r["group_id"], []).append(r)
+    real_qty = {(r["account_id"], r["asset_id"]): r["quantity"]
+                for r in conn.execute(HOLDINGS_SQL, {"asof": normalize_asof(None)})}
     usd2disp, disp_ok = fx.usd_to_display(conn, display_cur)
     disp_ccy = (display_cur or "USD").upper()
 
@@ -410,29 +444,7 @@ def group_positions(conn: sqlite3.Connection,
         members = by_gid.get(g["id"], [])
         if not members:
             continue
-        legs: dict[tuple[int, int], dict] = {}
-
-        def leg_acc(acc, aid):
-            return legs.setdefault((acc, aid),
-                                   {"qty": 0.0, "bc": 0.0, "bq": 0.0, "sc": 0.0, "sq": 0.0})
-
-        for t in members:
-            in_a = asset_of(t["inflow_asset_id"]) if t["inflow_asset_id"] else None
-            out_a = asset_of(t["outflow_asset_id"]) if t["outflow_asset_id"] else None
-            if t["inflow_account_id"] and t["inflow_asset_id"]:
-                s = leg_acc(t["inflow_account_id"], t["inflow_asset_id"])
-                s["qty"] += t["inflow_amount"] or 0.0
-                if (t["outflow_amount"] or 0) > 0 and out_a and out_a["asset_type"] == "cash":
-                    s["bc"] += t["outflow_amount"]
-                    s["bq"] += t["inflow_amount"] or 0.0
-            if t["outflow_account_id"] and t["outflow_asset_id"]:
-                s = leg_acc(t["outflow_account_id"], t["outflow_asset_id"])
-                s["qty"] -= t["outflow_amount"] or 0.0
-                if (t["inflow_amount"] or 0) > 0 and in_a and in_a["asset_type"] == "cash":
-                    s["sc"] += t["inflow_amount"]
-                    s["sq"] += t["outflow_amount"] or 0.0
-            if t["fee_account_id"] and t["fee_asset_id"] and (t["fee_amount"] or 0) > 0:
-                leg_acc(t["fee_account_id"], t["fee_asset_id"])["qty"] -= t["fee_amount"]
+        legs = open_cycle_states(events_by_gid.get(g["id"], []))
 
         leg_rows: list[dict] = []
         cash_disp = 0.0
@@ -476,10 +488,14 @@ def group_positions(conn: sqlite3.Connection,
             entry_cost_disp += cost_disp or 0.0
             open_disp += value_disp or 0.0
             unreal_disp += earn_disp or 0.0
+            pos_qty = real_qty.get((acc, aid), 0.0)
             leg_rows.append({
                 "asset_id": aid, "account_id": acc, "ticker": asset["ticker"],
                 "asset_type": atype, "currency": asset["currency"],
                 "qty": qty, "multiplier": mult,
+                "position_qty": pos_qty,
+                # group holds more than (or the opposite side of) the account position
+                "qty_mismatch": qty * pos_qty < 0 or abs(qty) > abs(pos_qty) + _EPS,
                 "entry_px": entry_px, "price_native": price, "price_source": src,
                 "value_native": value_native, "value_display": value_disp,
                 "entry_cost_display": cost_disp,

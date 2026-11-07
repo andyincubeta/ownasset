@@ -338,3 +338,84 @@ def test_split_keeps_group(client, sample_portfolio, aapl_buy):
     rows = client.get("/api/transactions").get_json()
     assert next(t for t in rows if t["id"] == body["new_id"])["group_id"] == gid
     assert next(t for t in rows if t["id"] == body["original_id"])["group_id"] == gid
+
+
+# ------------------------------------------- cycle-aware group entry prices --
+
+def _trade(client, acc, date, out_ast, out_amt, in_ast, in_amt):
+    return client.post("/api/transactions", json={
+        "txn_date": date, "outflow_account_id": acc, "outflow_asset_id": out_ast,
+        "outflow_amount": out_amt, "inflow_account_id": acc, "inflow_asset_id": in_ast,
+        "inflow_amount": in_amt}).get_json()["id"]
+
+
+def _group_leg(client, gid, ticker):
+    data = client.get("/api/dashboard/summary?ccy=USD").get_json()
+    g = next(x for x in data["txn_groups"] if x["id"] == gid)
+    return next((leg for leg in g["legs"] if leg["ticker"] == ticker), None)
+
+
+def test_group_entry_resets_after_closed_round_trip(client, sample_portfolio):
+    """Short 10 @100, cover, short 10 @200: entry is 200, not the 150 average."""
+    acc, usd = sample_portfolio["account_id"], sample_portfolio["usd"]
+    sk = _add_asset("SK", 190.0)
+    ids = [_trade(client, acc, "2024-01-05 10:00:00", sk, 10, usd, 1000),
+           _trade(client, acc, "2024-01-06 10:00:00", usd, 900, sk, 10),
+           _trade(client, acc, "2024-01-07 10:00:00", sk, 10, usd, 2000)]
+    gid = client.post("/api/txn-groups", json={"name": "SKG"}).get_json()["id"]
+    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": ids})
+    leg = _group_leg(client, gid, "SK")
+    assert leg["qty"] == pytest.approx(-10)
+    assert leg["entry_px"] == pytest.approx(200)
+    assert leg["qty_mismatch"] is False
+
+    s = client.get("/api/txn-groups/summary?ccy=USD").get_json()
+    a = next(x for x in next(g for g in s["groups"] if g["id"] == gid)["assets"]
+             if x["ticker"] == "SK")
+    assert a["entry_px"] == pytest.approx(200)
+
+
+def test_group_entry_crossing_zero_uses_crossing_trade(client, sample_portfolio):
+    acc, usd = sample_portfolio["account_id"], sample_portfolio["usd"]
+    sk = _add_asset("SK", 190.0)
+    ids = [_trade(client, acc, "2024-01-05 10:00:00", usd, 1000, sk, 10),    # long 10 @100
+           _trade(client, acc, "2024-01-06 10:00:00", sk, 30, usd, 6000)]    # sell 30 @200
+    gid = client.post("/api/txn-groups", json={"name": "X"}).get_json()["id"]
+    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": ids})
+    leg = _group_leg(client, gid, "SK")
+    assert leg["qty"] == pytest.approx(-20)
+    assert leg["entry_px"] == pytest.approx(200)
+
+
+def test_group_leg_mismatch_and_fix_candidates(client, sample_portfolio):
+    """Group holds the short sells but not the untagged cover -> phantom leg."""
+    acc, usd = sample_portfolio["account_id"], sample_portfolio["usd"]
+    sk = _add_asset("SK", 190.0)
+    s1 = _trade(client, acc, "2024-01-05 10:00:00", sk, 20, usd, 3400)
+    other = _trade(client, acc, "2024-01-05 12:00:00", sk, 5, usd, 850)  # untagged, before last
+    s2 = _trade(client, acc, "2024-01-06 10:00:00", sk, 10, usd, 1600)
+    cover = _trade(client, acc, "2024-01-08 10:00:00", usd, 4000, sk, 30)
+    gid = client.post("/api/txn-groups", json={"name": "SKHY"}).get_json()["id"]
+    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": [s1, s2]})
+
+    leg = _group_leg(client, gid, "SK")
+    assert leg["qty"] == pytest.approx(-30)
+    assert leg["position_qty"] == pytest.approx(-5)
+    assert leg["qty_mismatch"] is True
+
+    res = client.get(f"/api/txn-groups/{gid}/leg-candidates"
+                     f"?account_id={acc}&asset_id={sk}").get_json()
+    assert res["group_qty"] == pytest.approx(-30)
+    assert res["position_qty"] == pytest.approx(-5)
+    by_id = {c["txn_id"]: c for c in res["candidates"]}
+    assert set(by_id) == {other, cover}
+    assert by_id[cover]["suggested"] and not by_id[other]["suggested"]
+    assert by_id[cover]["px"] == pytest.approx(4000 / 30)
+    assert res["group_qty_after"] == pytest.approx(0)
+
+    client.post(f"/api/txn-groups/{gid}/assign", json={"txn_ids": [cover]})
+    assert _group_leg(client, gid, "SK") is None  # leg closed, P&L realized in cash
+
+    assert client.get(f"/api/txn-groups/{gid}/leg-candidates?account_id={acc}").status_code == 400
+    assert client.get(f"/api/txn-groups/99999/leg-candidates"
+                      f"?account_id={acc}&asset_id={sk}").status_code == 404

@@ -112,6 +112,51 @@ def assign_to_group(group_id):
     return jsonify({"ok": True, "updated": updated})
 
 
+@bp.get("/<int:group_id>/leg-candidates")
+def leg_candidates(group_id):
+    """Ungrouped trades on one position since the group's first trade in it.
+    'suggested' marks the shortest run after the group's last trade there that
+    brings the group qty within the account position."""
+    try:
+        account_id = int(request.args["account_id"])
+        asset_id = int(request.args["asset_id"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "account_id and asset_id are required"}), 400
+    with db.db_conn() as conn:
+        if conn.execute("SELECT 1 FROM txn_groups WHERE id = ?", (group_id,)).fetchone() is None:
+            return jsonify({"error": "group not found"}), 404
+        h = portfolio.trade_history(conn).get((account_id, asset_id))
+        d = conn.execute("SELECT multiplier FROM derivative_details WHERE asset_id = ?",
+                         (asset_id,)).fetchone()
+    mult = float(d["multiplier"]) if d and d["multiplier"] else 1.0
+    events = h["events"] if h else []
+    mine = [i for i, e in enumerate(events) if e["group_id"] == group_id]
+    if not mine:
+        return jsonify({"error": "group has no trades on this position"}), 404
+    group_qty = sum(events[i]["delta"] for i in mine)
+    position_qty = h["state"]["qty"]
+    cands = [dict(e, suggested=False, _i=i) for i, e in enumerate(events)
+             if i > mine[0] and e["group_id"] is None]
+    after = [c for c in cands if c["_i"] > mine[-1]]
+    run = group_qty
+    for n, c in enumerate(after):
+        run += c["delta"]
+        if run * position_qty >= 0 and abs(run) <= abs(position_qty) + 1e-9:
+            for s in after[:n + 1]:
+                s["suggested"] = True
+            break
+    picked = sum(c["delta"] for c in cands if c["suggested"])
+    return jsonify({
+        "group_qty": group_qty, "position_qty": position_qty,
+        "group_qty_after": group_qty + picked,
+        "candidates": [{
+            "txn_id": c["txn_id"], "txn_date": c["txn_date"], "side": c["side"],
+            "delta": c["delta"], "px": c["px"] / mult if c["px"] is not None else None,
+            "note": c["note"], "suggested": c["suggested"],
+        } for c in cands],
+    })
+
+
 @bp.post("/unassign")
 def unassign_from_group():
     try:
@@ -205,36 +250,21 @@ def groups_summary():
             "SELECT * FROM txn_groups ORDER BY name COLLATE NOCASE"))
         txns = db.rows_to_dicts(conn.execute(
             LIST_SQL + " WHERE t.group_id IS NOT NULL ORDER BY t.txn_date, t.id"))
-        atype = {r["id"]: r["asset_type"]
-                 for r in conn.execute("SELECT id, asset_type FROM assets")}
+        events_by_gid: dict[int, list] = {}
+        for r in conn.execute(portfolio.GROUP_EVENTS_SQL):
+            events_by_gid.setdefault(r["group_id"], []).append(r)
         out = []
         for g in groups:
             members = [t for t in txns if t["group_id"] == g["id"]]
             net: dict[int, float] = {}
-            # per-asset avg entry cost (cash paid/received vs a cash counterleg)
+            # per-asset avg entry cost of the open cycle (closed round trips drop out)
             costs: dict[int, dict] = {}
-
-            def cost_acc(aid):
-                return costs.setdefault(aid, {"bc": 0.0, "bq": 0.0, "sc": 0.0, "sq": 0.0})
-
-            for t in members:
-                # only legs on own accounts change holdings
-                if t["outflow_account_id"] and t["outflow_asset_id"]:
-                    net[t["outflow_asset_id"]] = net.get(t["outflow_asset_id"], 0.0) \
-                        - (t["outflow_amount"] or 0.0)
-                    if (t["inflow_amount"] or 0) > 0 and atype.get(t["inflow_asset_id"]) == "cash":
-                        s = cost_acc(t["outflow_asset_id"])
-                        s["sc"] += t["inflow_amount"]
-                        s["sq"] += t["outflow_amount"] or 0.0
-                if t["inflow_account_id"] and t["inflow_asset_id"]:
-                    net[t["inflow_asset_id"]] = net.get(t["inflow_asset_id"], 0.0) \
-                        + (t["inflow_amount"] or 0.0)
-                    if (t["outflow_amount"] or 0) > 0 and atype.get(t["outflow_asset_id"]) == "cash":
-                        s = cost_acc(t["inflow_asset_id"])
-                        s["bc"] += t["outflow_amount"]
-                        s["bq"] += t["inflow_amount"] or 0.0
-                if t["fee_account_id"] and t["fee_asset_id"] and (t["fee_amount"] or 0) > 0:
-                    net[t["fee_asset_id"]] = net.get(t["fee_asset_id"], 0.0) - t["fee_amount"]
+            for (_acc, aid), s in portfolio.open_cycle_states(
+                    events_by_gid.get(g["id"], [])).items():
+                net[aid] = net.get(aid, 0.0) + s["qty"]
+                c = costs.setdefault(aid, {"bc": 0.0, "bq": 0.0, "sc": 0.0, "sq": 0.0})
+                for k in c:
+                    c[k] += s[k]
             assets_out = []
             cash_disp = 0.0
             open_disp = 0.0
